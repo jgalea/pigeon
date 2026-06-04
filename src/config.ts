@@ -8,6 +8,7 @@ export interface Config {
   mediaDir: string
   mediaLifetimeDays: number
   logLevel: string
+  webhookSecret?: string
 }
 
 export function loadConfig(env = process.env): Config {
@@ -21,5 +22,6 @@ export function loadConfig(env = process.env): Config {
     mediaDir: resolve(env.WA_MEDIA_DIR ?? './media'),
     mediaLifetimeDays: Number(env.WA_MEDIA_LIFETIME_DAYS ?? 180),
     logLevel: env.WA_LOG_LEVEL ?? 'info',
+    webhookSecret: env.WA_WEBHOOK_SECRET || undefined,
   }
 }

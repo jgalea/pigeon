@@ -1,7 +1,21 @@
 import type { SessionManager } from './sessionManager.js'
 import type { HistoryStore } from '../db/historyStore.js'
 import type { MediaService } from './mediaService.js'
-import type { OutgoingMessage } from './types.js'
+import type { OutgoingMessage, OutgoingContact, OutgoingPoll } from './types.js'
+
+function buildVcard(c: OutgoingContact): string {
+  const waid = c.phone.replace(/[^0-9]/g, '')
+  return [
+    'BEGIN:VCARD',
+    'VERSION:3.0',
+    `FN:${c.fullName}`,
+    c.organization ? `ORG:${c.organization};` : undefined,
+    `TEL;type=CELL;type=VOICE;waid=${waid}:${c.phone}`,
+    'END:VCARD',
+  ]
+    .filter(Boolean)
+    .join('\n')
+}
 
 export class MessageService {
   private queues = new Map<string, Promise<unknown>>()
@@ -11,6 +25,13 @@ export class MessageService {
     private history: HistoryStore,
     private media: MediaService,
   ) {}
+
+  private requireSocket(session: string) {
+    if (this.sessions.status(session) !== 'WORKING') throw new Error(`session ${session} not WORKING`)
+    const sock = this.sessions.socket(session)
+    if (!sock) throw new Error(`session ${session} has no socket`)
+    return sock
+  }
 
   private enqueue<T>(session: string, fn: () => Promise<T>): Promise<T> {
     const prev = this.queues.get(session) ?? Promise.resolve()
@@ -25,9 +46,7 @@ export class MessageService {
   }
 
   async send(session: string, msg: OutgoingMessage): Promise<{ id: string }> {
-    if (this.sessions.status(session) !== 'WORKING') throw new Error(`session ${session} not WORKING`)
-    const sock = this.sessions.socket(session)
-    if (!sock) throw new Error(`session ${session} has no socket`)
+    const sock = this.requireSocket(session)
     return this.enqueue(session, async () => {
       const content = await this.buildContent(msg)
       const res = (await sock.sendMessage(msg.chatId, content as never)) as
@@ -65,14 +84,63 @@ export class MessageService {
             degreesLongitude: msg.location!.longitude,
           },
         }
+      case 'contact': {
+        const c = msg.contact!
+        return {
+          contacts: { displayName: c.fullName, contacts: [{ vcard: buildVcard(c) }] },
+        }
+      }
+      case 'poll': {
+        const p: OutgoingPoll = msg.poll!
+        return { poll: { name: p.name, values: p.options, selectableCount: p.selectableCount ?? 1 } }
+      }
       default:
         throw new Error(`unsupported type ${(msg as { type: string }).type}`)
     }
   }
 
+  private key(chatId: string, msgId: string, fromMe: boolean) {
+    return { remoteJid: chatId, id: msgId, fromMe }
+  }
+
+  async react(session: string, chatId: string, msgId: string, emoji: string, fromMe = false) {
+    const sock = this.requireSocket(session)
+    return this.enqueue(session, async () => {
+      await sock.sendMessage(chatId, { react: { text: emoji, key: this.key(chatId, msgId, fromMe) } } as never)
+      return { success: true }
+    })
+  }
+
+  async edit(session: string, chatId: string, msgId: string, text: string, fromMe = true) {
+    const sock = this.requireSocket(session)
+    return this.enqueue(session, async () => {
+      await sock.sendMessage(chatId, { text, edit: this.key(chatId, msgId, fromMe) } as never)
+      return { success: true }
+    })
+  }
+
+  async remove(session: string, chatId: string, msgId: string, fromMe = true) {
+    const sock = this.requireSocket(session)
+    return this.enqueue(session, async () => {
+      await sock.sendMessage(chatId, { delete: this.key(chatId, msgId, fromMe) } as never)
+      return { success: true }
+    })
+  }
+
+  async forward(session: string, toChatId: string, fromChatId: string, msgId: string) {
+    const sock = this.requireSocket(session)
+    const stored = this.history.get(session, fromChatId, msgId)
+    if (!stored) throw new Error('message not found in history; cannot forward')
+    return this.enqueue(session, async () => {
+      const res = (await sock.sendMessage(toChatId, { forward: stored.raw } as never)) as
+        | { key?: { id?: string } }
+        | undefined
+      return { id: res?.key?.id ?? '' }
+    })
+  }
+
   async sendSeen(session: string, chatId: string): Promise<void> {
-    const sock = this.sessions.socket(session)
-    if (!sock) throw new Error('no socket')
+    const sock = this.requireSocket(session)
     await sock.readMessages?.([{ remoteJid: chatId, id: '', participant: undefined } as never])
   }
 }

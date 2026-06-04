@@ -73,6 +73,46 @@ export async function registerCompat(app: FastifyInstance, core: Core) {
     return { success: true }
   })
 
+  app.post('/api/sendContact', async (req) => {
+    const b = req.body as { session?: string; chatId: string; fullName: string; phone: string; organization?: string }
+    const r = await core.messages.send(b.session ?? 'default', {
+      chatId: b.chatId,
+      type: 'contact',
+      contact: { fullName: b.fullName, phone: b.phone, organization: b.organization },
+    })
+    return { id: r.id }
+  })
+
+  app.post('/api/sendPoll', async (req) => {
+    const b = req.body as {
+      session?: string
+      chatId: string
+      name: string
+      options: string[]
+      selectableCount?: number
+    }
+    const r = await core.messages.send(b.session ?? 'default', {
+      chatId: b.chatId,
+      type: 'poll',
+      poll: { name: b.name, options: b.options, selectableCount: b.selectableCount },
+    })
+    return { id: r.id }
+  })
+
+  app.post('/api/reaction', async (req) => {
+    const b = req.body as { session?: string; chatId: string; messageId: string; reaction: string; fromMe?: boolean }
+    return core.messages.react(b.session ?? 'default', b.chatId, b.messageId, b.reaction, b.fromMe ?? false)
+  })
+
+  app.post('/api/startTyping', async (req) => {
+    const b = req.body as { session?: string; chatId: string }
+    return core.wa.setPresence(b.session ?? 'default', 'composing', b.chatId)
+  })
+  app.post('/api/stopTyping', async (req) => {
+    const b = req.body as { session?: string; chatId: string }
+    return core.wa.setPresence(b.session ?? 'default', 'paused', b.chatId)
+  })
+
   app.get('/api/:session/chats/:chatId/messages', async (req) => {
     const p = req.params as { session: string; chatId: string }
     const q = req.query as { limit?: string }

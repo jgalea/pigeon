@@ -12,11 +12,16 @@ In short: the WAHA-compatible basics, without the paywall.
 
 ## Features
 
-- Send text, images, documents, video, voice notes, and locations
+- Send text, images, documents, video, voice notes, locations, contacts, and polls
+- Message actions: react, edit, delete, forward
+- Presence and typing indicators
+- Group management: create, leave, participants, subject and description, invite links, settings
+- Profile: set display name and status, fetch profile pictures, block and unblock
 - Receive messages, with history persisted to SQLite
 - Multiple sessions (numbers) from one instance
-- Webhooks per session, with retry and backoff, plus a Server-Sent Events stream
-- QR pairing over HTTP
+- Webhooks per session with retry, backoff, optional HMAC signing, and a Server-Sent Events stream
+- Typed events: messages, acks, reactions, presence, group changes
+- QR pairing and phone pairing-code over HTTP
 - Auto-reconnect that tells a real logout apart from a transient drop
 - Per-session send queue with light rate limiting
 - WAHA-compatible `/api` surface and a clean `/v1` surface
@@ -88,8 +93,25 @@ Cleaner and consistent. Session in the path, one unified send shape.
 | GET / POST | `/v1/sessions` | list / create `{name}` |
 | GET / DELETE | `/v1/sessions/:name` | status (with qr) / logout |
 | POST | `/v1/sessions/:name/start\|stop\|restart` | lifecycle |
-| POST | `/v1/sessions/:name/messages` | `{chatId, type, text?, caption?, media?, location?}` |
+| POST | `/v1/sessions/:name/messages` | `{chatId, type, text?, caption?, media?, location?, contact?, poll?}` |
+| POST | `/v1/sessions/:name/react` | `{chatId, msgId, emoji, fromMe?}` |
+| POST | `/v1/sessions/:name/edit` | `{chatId, msgId, text}` |
+| POST | `/v1/sessions/:name/delete` | `{chatId, msgId, fromMe?}` |
+| POST | `/v1/sessions/:name/forward` | `{toChatId, fromChatId, msgId}` |
+| POST | `/v1/sessions/:name/presence` | `{type, chatId?}` (available, composing, paused, ...) |
+| GET | `/v1/sessions/:name/chats` | recent chats from history |
 | GET | `/v1/sessions/:name/chats/:chatId/messages?limit=` | history |
+| GET | `/v1/sessions/:name/contacts/check?phone=` | is on WhatsApp |
+| GET | `/v1/sessions/:name/contacts/:chatId/picture` | profile picture url |
+| POST | `/v1/sessions/:name/contacts/:chatId/block` | `{blocked}` |
+| PUT | `/v1/sessions/:name/profile/name\|status` | `{name}` / `{status}` |
+| POST/GET | `/v1/sessions/:name/groups` | create `{subject, participants}` / list |
+| GET | `/v1/sessions/:name/groups/:groupId` | metadata |
+| POST | `/v1/sessions/:name/groups/:groupId/participants` | `{participants, action}` |
+| PUT | `/v1/sessions/:name/groups/:groupId/subject\|description` | update |
+| GET/POST | `/v1/sessions/:name/groups/:groupId/invite` | get / `invite/revoke` |
+| POST | `/v1/sessions/:name/groups/accept` | `{code}` |
+| POST | `/v1/sessions/:name/auth/pairing-code` | `{phone}` (alternative to QR) |
 | PUT | `/v1/sessions/:name/webhooks` | `{urls:[...]}` |
 | GET | `/v1/events` | Server-Sent Events stream |
 
@@ -104,6 +126,7 @@ Cleaner and consistent. Session in the path, one unified send shape.
 | `WA_MEDIA_DIR` | `./media` | downloaded media |
 | `WA_MEDIA_LIFETIME_DAYS` | `180` | media cleanup window |
 | `WA_LOG_LEVEL` | `info` | pino log level |
+| `WA_WEBHOOK_SECRET` | (unset) | if set, sign webhooks with an `x-pigeon-signature` HMAC |
 
 ## How it works
 
@@ -122,7 +145,7 @@ The compat adapter is a thin translation over the same core the native API uses,
 
 ## Pigeon vs WAHA
 
-Pigeon is a focused subset of WAHA, not a full clone. It covers the common send and receive paths, and the headline difference is that what WAHA charges for (media and voice sending, multiple sessions) is free here.
+Pigeon covers most of WAHA's messaging surface: sends, message actions, presence, groups, profile, and webhooks. The headline difference is that what WAHA charges for (media and voice sending, multiple sessions, HMAC-signed webhooks) is free here. Pigeon deliberately skips the human-facing extras (a dashboard, Swagger UI) that don't fit an automation-first tool.
 
 | Feature | WAHA | Pigeon |
 | --- | --- | --- |
@@ -131,23 +154,28 @@ Pigeon is a focused subset of WAHA, not a full clone. It covers the common send 
 | Send image / file / video | Plus only | Yes |
 | Send voice note | Plus only | Yes |
 | Send location | Yes | Yes |
+| Send contact (vCard) | Yes | Yes |
+| Send poll | Yes | Yes |
+| Reactions, edit, delete, forward | Yes | Yes |
+| Typing / presence | Yes | Yes |
 | Multiple sessions | Limited in Core | Unlimited |
 | Receive messages + webhooks | Yes | Yes |
+| Webhook HMAC signing | Plus only | Yes |
+| Webhook event types | Many typed | Message, ack, reaction, presence, group |
 | Live event stream | WebSocket | Server-Sent Events |
 | Message history | Yes (S3/Postgres are Plus) | Built-in SQLite |
 | Media download | Yes | Yes |
-| Groups: list | Yes | Yes |
-| Groups: full management | Yes | No |
-| Contacts: check-exists | Yes | Yes |
-| Contacts: full management | Yes | No |
-| Reactions, edit, delete, forward | Yes | No |
-| Typing / presence | Yes | No |
+| Groups: list + full management | Yes | Yes |
+| Contacts: check, picture, block | Yes | Yes |
+| Contacts: full address book | Yes | No |
+| Profile: name, status, picture | Yes | Yes |
+| Pairing: QR + phone code | Yes | Yes |
 | Labels, status, channels | Yes | No |
 | Engines | NOWEB, WEBJS, GOWS | Baileys (NOWEB) |
-| Dashboard UI / Swagger | Yes | No |
+| Dashboard UI / Swagger | Yes | No (by design) |
 | Maturity | Mature product | New, single maintainer |
 
-If you need WAHA's full breadth (engines to fall back on, groups and contacts administration, a dashboard), use WAHA. If you want the common endpoints with media ungated, self-hosted and MIT, use Pigeon.
+What's left to WAHA: alternative engines to fall back on, the full contact address book, labels, status, channels, and a dashboard UI. If you need those, use WAHA. If you want a clean, automation-first API with media and the rest ungated, self-hosted and MIT, use Pigeon.
 
 ## Storage
 

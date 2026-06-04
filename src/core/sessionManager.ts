@@ -108,6 +108,16 @@ export class SessionManager extends EventEmitter {
         this.emit('event', { session: name, event: 'message', payload: msg, timestamp: Date.now() })
       }
     })
+
+    const relay = (event: string) => (payload: unknown) =>
+      this.emit('event', { session: name, event, payload, timestamp: Date.now() })
+
+    sock.ev.on('messages.update', relay('message.update'))
+    sock.ev.on('messages.reaction', relay('message.reaction'))
+    sock.ev.on('message-receipt.update', relay('message.ack'))
+    sock.ev.on('presence.update', relay('presence.update'))
+    sock.ev.on('group-participants.update', relay('group.participants'))
+    sock.ev.on('groups.update', relay('group.update'))
   }
 
   private normalize(session: string, msg: Record<string, never>): NormalizedMessage | undefined {

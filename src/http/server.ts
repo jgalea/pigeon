@@ -6,6 +6,7 @@ import type { MessageService } from '../core/messageService.js'
 import type { HistoryStore } from '../db/historyStore.js'
 import type { MediaService } from '../core/mediaService.js'
 import type { WebhookDispatcher } from '../core/webhookDispatcher.js'
+import type { WaService } from '../core/waService.js'
 import { registerCompat } from './compat.js'
 import { registerV1 } from './v1.js'
 
@@ -17,6 +18,7 @@ export interface Core {
   history: HistoryStore
   media: MediaService
   webhooks: WebhookDispatcher
+  wa: WaService
 }
 
 export async function buildServer(core: Core) {

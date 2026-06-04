@@ -6,6 +6,7 @@ import { SessionManager } from './core/sessionManager.js'
 import { MessageService } from './core/messageService.js'
 import { MediaService } from './core/mediaService.js'
 import { WebhookDispatcher } from './core/webhookDispatcher.js'
+import { WaService } from './core/waService.js'
 import { buildServer } from './http/server.js'
 
 const config = loadConfig()
@@ -16,13 +17,18 @@ const history = new HistoryStore(db)
 const media = new MediaService(config.mediaDir, config.mediaLifetimeDays, logger)
 const sessions = new SessionManager(db, history, logger)
 const messages = new MessageService(sessions, history, media)
-const webhooks = new WebhookDispatcher(logger)
+const wa = new WaService(sessions, media)
+const webhooks = new WebhookDispatcher(logger, fetch, {
+  retries: 3,
+  baseDelayMs: 500,
+  secret: config.webhookSecret,
+})
 
 sessions.on('event', (e) => {
   webhooks.dispatch(e).catch((err) => logger.warn({ err }, 'webhook dispatch failed'))
 })
 
-const app = await buildServer({ config, logger, sessions, messages, history, media, webhooks })
+const app = await buildServer({ config, logger, sessions, messages, history, media, webhooks, wa })
 await app.listen({ host: config.host, port: config.port })
 logger.info({ port: config.port, host: config.host }, 'pigeon listening')
 

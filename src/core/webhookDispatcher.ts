@@ -1,3 +1,4 @@
+import { createHmac } from 'node:crypto'
 import type { Logger } from '../logger.js'
 import type { WebhookEvent } from './types.js'
 
@@ -10,7 +11,10 @@ export class WebhookDispatcher {
   constructor(
     private logger: Logger,
     private fetchImpl: Fetch = fetch,
-    private opts: { retries: number; baseDelayMs: number } = { retries: 3, baseDelayMs: 500 },
+    private opts: { retries: number; baseDelayMs: number; secret?: string } = {
+      retries: 3,
+      baseDelayMs: 500,
+    },
   ) {}
 
   setUrls(session: string, urls: string[]) {
@@ -37,12 +41,17 @@ export class WebhookDispatcher {
   }
 
   private async deliver(url: string, e: WebhookEvent) {
+    const body = JSON.stringify(e)
+    const headers: Record<string, string> = { 'content-type': 'application/json' }
+    if (this.opts.secret) {
+      headers['x-pigeon-signature'] = createHmac('sha256', this.opts.secret).update(body).digest('hex')
+    }
     for (let attempt = 0; attempt <= this.opts.retries; attempt++) {
       try {
         const res = await this.fetchImpl(url, {
           method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify(e),
+          headers,
+          body,
         })
         if ((res as { ok: boolean }).ok) return
       } catch {

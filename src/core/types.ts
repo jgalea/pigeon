@@ -13,13 +13,33 @@ export interface NormalizedMessage {
   raw: unknown
 }
 
-export type OutgoingType = 'text' | 'image' | 'file' | 'voice' | 'video' | 'location'
+export type OutgoingType =
+  | 'text'
+  | 'image'
+  | 'file'
+  | 'voice'
+  | 'video'
+  | 'location'
+  | 'contact'
+  | 'poll'
 
 export interface OutgoingMedia {
   data?: string
   url?: string
   mimetype?: string
   filename?: string
+}
+
+export interface OutgoingContact {
+  fullName: string
+  organization?: string
+  phone: string
+}
+
+export interface OutgoingPoll {
+  name: string
+  options: string[]
+  selectableCount?: number
 }
 
 export interface OutgoingMessage {
@@ -29,7 +49,11 @@ export interface OutgoingMessage {
   caption?: string
   media?: OutgoingMedia
   location?: { latitude: number; longitude: number }
+  contact?: OutgoingContact
+  poll?: OutgoingPoll
 }
+
+export type PresenceType = 'available' | 'unavailable' | 'composing' | 'recording' | 'paused'
 
 export interface WebhookEvent {
   session: string

@@ -4,6 +4,8 @@ import type { NormalizedMessage } from '../core/types.js'
 export class HistoryStore {
   private ins
   private sel
+  private one
+  private chatsStmt
 
   constructor(db: DB) {
     this.ins = db.prepare(`INSERT INTO messages(session,chat_id,msg_id,from_me,timestamp,type,body,caption,media_path,raw)
@@ -11,6 +13,25 @@ export class HistoryStore {
       ON CONFLICT(session,chat_id,msg_id) DO UPDATE SET
         body=excluded.body, caption=excluded.caption, media_path=excluded.media_path, raw=excluded.raw, timestamp=excluded.timestamp`)
     this.sel = db.prepare(`SELECT * FROM messages WHERE session=? AND chat_id=? ORDER BY timestamp DESC LIMIT ?`)
+    this.one = db.prepare(`SELECT * FROM messages WHERE session=? AND chat_id=? AND msg_id=?`)
+    this.chatsStmt = db.prepare(
+      `SELECT chat_id, MAX(timestamp) AS ts, COUNT(*) AS n FROM messages WHERE session=? GROUP BY chat_id ORDER BY ts DESC LIMIT ?`,
+    )
+  }
+
+  private toMessage(r: Record<string, unknown>): NormalizedMessage {
+    return {
+      session: r.session as string,
+      chatId: r.chat_id as string,
+      msgId: r.msg_id as string,
+      fromMe: !!r.from_me,
+      timestamp: r.timestamp as number,
+      type: r.type as string,
+      body: (r.body as string) ?? undefined,
+      caption: (r.caption as string) ?? undefined,
+      mediaPath: (r.media_path as string) ?? undefined,
+      raw: JSON.parse(r.raw as string),
+    }
   }
 
   save(m: NormalizedMessage) {
@@ -30,17 +51,20 @@ export class HistoryStore {
 
   list(session: string, chatId: string, limit: number): NormalizedMessage[] {
     const rows = this.sel.all(session, chatId, limit) as Array<Record<string, unknown>>
+    return rows.map((r) => this.toMessage(r))
+  }
+
+  get(session: string, chatId: string, msgId: string): NormalizedMessage | undefined {
+    const row = this.one.get(session, chatId, msgId) as Record<string, unknown> | undefined
+    return row ? this.toMessage(row) : undefined
+  }
+
+  chats(session: string, limit: number): { chatId: string; lastTimestamp: number; count: number }[] {
+    const rows = this.chatsStmt.all(session, limit) as Array<Record<string, unknown>>
     return rows.map((r) => ({
-      session: r.session as string,
       chatId: r.chat_id as string,
-      msgId: r.msg_id as string,
-      fromMe: !!r.from_me,
-      timestamp: r.timestamp as number,
-      type: r.type as string,
-      body: (r.body as string) ?? undefined,
-      caption: (r.caption as string) ?? undefined,
-      mediaPath: (r.media_path as string) ?? undefined,
-      raw: JSON.parse(r.raw as string),
+      lastTimestamp: r.ts as number,
+      count: r.n as number,
     }))
   }
 }
