@@ -1,21 +1,31 @@
-# Pigeon
+<p align="center">
+  <img src="assets/banner.png" alt="Pigeon" width="100%">
+</p>
+
+# Pigeon 🐦
+
+<p align="center">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-4c9e31?style=for-the-badge" alt="License: MIT"></a>
+  <img src="https://img.shields.io/badge/TypeScript-3178C6?style=for-the-badge&logo=typescript&logoColor=white" alt="TypeScript">
+  <img src="https://img.shields.io/badge/Docker-2496ED?style=for-the-badge&logo=docker&logoColor=white" alt="Docker">
+  <img src="https://img.shields.io/badge/Self--hosted-0174BE?style=for-the-badge" alt="Self-hosted">
+  <a href="https://github.com/jgalea/pigeon/stargazers"><img src="https://img.shields.io/github/stars/jgalea/pigeon?style=for-the-badge&color=FFBC7D&labelColor=1c1206" alt="Stars"></a>
+  <a href="https://agentvania.com"><img src="https://img.shields.io/badge/Built%20by-AgentVania-6A462F?style=for-the-badge" alt="Built by AgentVania"></a>
+</p>
 
 A self-hosted WhatsApp automation system. Send and receive WhatsApp messages over a simple REST interface, on a server you control. Built on Baileys, runs in Docker, stores everything in SQLite.
 
 ## Features
 
-- Send text, images, documents, video, voice notes, locations, contacts, and polls
-- Message actions: react, edit, delete, forward
-- Presence and typing indicators
-- Group management: create, leave, participants, subject and description, invite links, settings
-- Profile: set display name and status, fetch profile pictures, block and unblock
-- Status posting and channels
-- Receive messages, with history persisted to SQLite
-- Multiple sessions (numbers) from one instance
-- Webhooks per session with retry, backoff, optional HMAC signing, and a Server-Sent Events stream
-- QR pairing and phone pairing-code over HTTP
-- Auto-reconnect, per-session send queue with light rate limiting
-- One Docker container, two mounted volumes
+| | |
+| --- | --- |
+| **Send anything** | Text, images, documents, video, voice notes, locations, contacts, and polls. |
+| **Message actions** | React, edit, delete, and forward. |
+| **Conversations** | Presence and typing indicators, read receipts, status posting, and channels. |
+| **Groups & profile** | Create and manage groups (participants, invite links, settings); set your name, status, and picture; block and unblock. |
+| **Receive & react** | Incoming messages persisted to SQLite, with per-session webhooks (retry, backoff, optional HMAC signing) and a Server-Sent Events stream. |
+| **Multi-session** | Run several numbers from one instance. QR or phone-code pairing over HTTP. |
+| **Built to run** | Auto-reconnect, per-session send queue with light rate limiting, one Docker container with two mounted volumes. |
 
 ## Requirements
 
