@@ -17,13 +17,21 @@ A self-hosted WhatsApp HTTP API. Send and receive WhatsApp messages over a simpl
 - Auto-reconnect, per-session send queue with light rate limiting
 - One Docker container, two mounted volumes
 
+## Requirements
+
+- A running Docker engine with `docker compose`. On macOS that's Docker Desktop, OrbStack, or colima; on Linux, Docker Engine. The daemon must actually be running before you start.
+- A phone with WhatsApp, to pair the number once via QR.
+- Node 22+ only if you want to run it outside Docker (local development).
+
 ## Quick start
 
 ```bash
-cp .env.example .env          # set WA_API_KEY
+cp .env.example .env          # set WA_API_KEY to any secret string
 docker compose up -d --build
 curl -s localhost:4000/api/health     # {"status":"ok"}
 ```
+
+The container listens inside on port 3000 and is published to `127.0.0.1:4000` by the compose file.
 
 Pair a number:
 
