@@ -15,7 +15,7 @@ Tests use vitest. Please add or update tests for any behavior change. The build 
 
 ## Scope
 
-Pigeon does the common WhatsApp send and receive paths over a WAHA-compatible API, plus a clean `/v1` surface. Good contributions:
+Pigeon does the common WhatsApp send and receive paths over a flat `/api` surface plus a clean `/v1` surface. Good contributions:
 
 - Bug fixes and reliability improvements
 - Filling gaps in existing endpoints

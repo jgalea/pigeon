@@ -2,14 +2,14 @@ import type { FastifyInstance } from 'fastify'
 import type { Core } from './server.js'
 import type { OutgoingMessage, OutgoingType } from '../core/types.js'
 
-interface WahaFile {
+interface CompatFile {
   data?: string
   url?: string
   mimetype?: string
   filename?: string
 }
 
-const mapFile = (file?: WahaFile) =>
+const mapFile = (file?: CompatFile) =>
   file && { data: file.data, url: file.url, mimetype: file.mimetype, filename: file.filename }
 
 export async function registerCompat(app: FastifyInstance, core: Core) {
@@ -45,7 +45,7 @@ export async function registerCompat(app: FastifyInstance, core: Core) {
       chatId: string
       text?: string
       caption?: string
-      file?: WahaFile
+      file?: CompatFile
       latitude?: number
       longitude?: number
     }

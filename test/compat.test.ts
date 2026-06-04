@@ -52,7 +52,7 @@ describe('compat /api', () => {
     expect(r.json()).toMatchObject({ id: 'OUT1' })
   })
 
-  it('POST /api/sendFile maps the WAHA file object to a file send', async () => {
+  it('POST /api/sendFile maps the flat file object to a file send', async () => {
     const core = coreMock()
     const app = await appWith(core)
     await app.inject({
@@ -68,7 +68,7 @@ describe('compat /api', () => {
     })
   })
 
-  it('GET chats messages returns a WAHA-shaped array', async () => {
+  it('GET chats messages returns a flat array', async () => {
     const app = await appWith(coreMock())
     const r = await app.inject({ method: 'GET', url: '/api/default/chats/a%40c.us/messages?limit=10' })
     const body = r.json()

@@ -2,6 +2,7 @@ import type { SessionManager } from './sessionManager.js'
 import type { HistoryStore } from '../db/historyStore.js'
 import type { MediaService } from './mediaService.js'
 import type { OutgoingMessage, OutgoingContact, OutgoingPoll } from './types.js'
+import { normalizeJid } from './jid.js'
 
 function buildVcard(c: OutgoingContact): string {
   const waid = c.phone.replace(/[^0-9]/g, '')
@@ -49,7 +50,7 @@ export class MessageService {
     const sock = this.requireSocket(session)
     return this.enqueue(session, async () => {
       const content = await this.buildContent(msg)
-      const res = (await sock.sendMessage(msg.chatId, content as never)) as
+      const res = (await sock.sendMessage(normalizeJid(msg.chatId), content as never)) as
         | { key?: { id?: string } }
         | undefined
       return { id: res?.key?.id ?? '' }
@@ -100,13 +101,13 @@ export class MessageService {
   }
 
   private key(chatId: string, msgId: string, fromMe: boolean) {
-    return { remoteJid: chatId, id: msgId, fromMe }
+    return { remoteJid: normalizeJid(chatId), id: msgId, fromMe }
   }
 
   async react(session: string, chatId: string, msgId: string, emoji: string, fromMe = false) {
     const sock = this.requireSocket(session)
     return this.enqueue(session, async () => {
-      await sock.sendMessage(chatId, { react: { text: emoji, key: this.key(chatId, msgId, fromMe) } } as never)
+      await sock.sendMessage(normalizeJid(chatId), { react: { text: emoji, key: this.key(chatId, msgId, fromMe) } } as never)
       return { success: true }
     })
   }
@@ -114,7 +115,7 @@ export class MessageService {
   async edit(session: string, chatId: string, msgId: string, text: string, fromMe = true) {
     const sock = this.requireSocket(session)
     return this.enqueue(session, async () => {
-      await sock.sendMessage(chatId, { text, edit: this.key(chatId, msgId, fromMe) } as never)
+      await sock.sendMessage(normalizeJid(chatId), { text, edit: this.key(chatId, msgId, fromMe) } as never)
       return { success: true }
     })
   }
@@ -122,17 +123,17 @@ export class MessageService {
   async remove(session: string, chatId: string, msgId: string, fromMe = true) {
     const sock = this.requireSocket(session)
     return this.enqueue(session, async () => {
-      await sock.sendMessage(chatId, { delete: this.key(chatId, msgId, fromMe) } as never)
+      await sock.sendMessage(normalizeJid(chatId), { delete: this.key(chatId, msgId, fromMe) } as never)
       return { success: true }
     })
   }
 
   async forward(session: string, toChatId: string, fromChatId: string, msgId: string) {
     const sock = this.requireSocket(session)
-    const stored = this.history.get(session, fromChatId, msgId)
+    const stored = this.history.get(session, normalizeJid(fromChatId), msgId) ?? this.history.get(session, fromChatId, msgId)
     if (!stored) throw new Error('message not found in history; cannot forward')
     return this.enqueue(session, async () => {
-      const res = (await sock.sendMessage(toChatId, { forward: stored.raw } as never)) as
+      const res = (await sock.sendMessage(normalizeJid(toChatId), { forward: stored.raw } as never)) as
         | { key?: { id?: string } }
         | undefined
       return { id: res?.key?.id ?? '' }
@@ -141,6 +142,6 @@ export class MessageService {
 
   async sendSeen(session: string, chatId: string): Promise<void> {
     const sock = this.requireSocket(session)
-    await sock.readMessages?.([{ remoteJid: chatId, id: '', participant: undefined } as never])
+    await sock.readMessages?.([{ remoteJid: normalizeJid(chatId), id: '', participant: undefined } as never])
   }
 }

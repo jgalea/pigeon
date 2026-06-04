@@ -1,14 +1,6 @@
 # Pigeon
 
-A self-hosted WhatsApp HTTP API. Send and receive WhatsApp messages over a simple REST interface, including images, documents, and voice notes, with multiple sessions and webhooks. Built on Baileys, runs in Docker, stores everything in SQLite.
-
-Pigeon is a drop-in replacement for WAHA's local setup: same port, same `X-Api-Key` header, same request shapes for the common endpoints, with media and voice sending available out of the box.
-
-## Why
-
-WAHA Core blocks media and voice sending behind its paid tier across every engine, even though the underlying Baileys library it wraps supports them. Pigeon is a small, owned alternative: one clean core, a WAHA-compatible surface so existing tooling keeps working, and a clean `/v1` API for new work. No gated features, no per-message fees, no external dependency.
-
-In short: the WAHA-compatible basics, without the paywall.
+A self-hosted WhatsApp HTTP API. Send and receive WhatsApp messages over a simple REST interface, on a server you control. Built on Baileys, runs in Docker, stores everything in SQLite.
 
 ## Features
 
@@ -17,14 +9,12 @@ In short: the WAHA-compatible basics, without the paywall.
 - Presence and typing indicators
 - Group management: create, leave, participants, subject and description, invite links, settings
 - Profile: set display name and status, fetch profile pictures, block and unblock
+- Status posting and channels
 - Receive messages, with history persisted to SQLite
 - Multiple sessions (numbers) from one instance
 - Webhooks per session with retry, backoff, optional HMAC signing, and a Server-Sent Events stream
-- Typed events: messages, acks, reactions, presence, group changes
 - QR pairing and phone pairing-code over HTTP
-- Auto-reconnect that tells a real logout apart from a transient drop
-- Per-session send queue with light rate limiting
-- WAHA-compatible `/api` surface and a clean `/v1` surface
+- Auto-reconnect, per-session send queue with light rate limiting
 - One Docker container, two mounted volumes
 
 ## Quick start
@@ -61,32 +51,9 @@ npm test                      # vitest
 
 ## API
 
-Every route except `/api/health` requires `X-Api-Key: <WA_API_KEY>`.
+Every route except `/api/health` requires `X-Api-Key: <WA_API_KEY>`. There are two route groups: a clean, versioned `/v1` API (recommended for new work) and a set of flatter `/api` endpoints with the session in the request body, convenient for simple clients.
 
-### Compat surface (`/api/*`)
-
-WAHA-shaped, for drop-in compatibility. Session goes in the body for sends.
-
-| Method | Path | Body / notes |
-| --- | --- | --- |
-| GET | `/api/health` | no auth |
-| GET | `/api/sessions` / `/api/sessions/:name` | status |
-| POST | `/api/sessions/:name/start\|stop\|restart` | lifecycle |
-| GET | `/api/:session/auth/qr` | PNG QR for pairing |
-| POST | `/api/sendText` | `{session, chatId, text}` |
-| POST | `/api/sendImage\|sendFile\|sendVideo` | `{session, chatId, file:{data\|url, mimetype, filename}, caption}` |
-| POST | `/api/sendVoice` | `{session, chatId, file:{data\|url}}` |
-| POST | `/api/sendLocation` | `{session, chatId, latitude, longitude}` |
-| POST | `/api/sendSeen` | `{session, chatId}` |
-| GET | `/api/:session/chats/:chatId/messages?limit=` | history |
-| GET | `/api/:session/groups` | id + name |
-| GET | `/api/contacts/check-exists?session=&phone=` | is on WhatsApp |
-
-`file.data` is base64. `file.url` makes Pigeon fetch the bytes server-side.
-
-### Native surface (`/v1/*`)
-
-Cleaner and consistent. Session in the path, one unified send shape.
+### `/v1`
 
 | Method | Path | Body / notes |
 | --- | --- | --- |
@@ -98,8 +65,8 @@ Cleaner and consistent. Session in the path, one unified send shape.
 | POST | `/v1/sessions/:name/edit` | `{chatId, msgId, text}` |
 | POST | `/v1/sessions/:name/delete` | `{chatId, msgId, fromMe?}` |
 | POST | `/v1/sessions/:name/forward` | `{toChatId, fromChatId, msgId}` |
-| POST | `/v1/sessions/:name/presence` | `{type, chatId?}` (available, composing, paused, ...) |
-| GET | `/v1/sessions/:name/chats` | recent chats from history |
+| POST | `/v1/sessions/:name/presence` | `{type, chatId?}` |
+| GET | `/v1/sessions/:name/chats` | recent chats |
 | GET | `/v1/sessions/:name/chats/:chatId/messages?limit=` | history |
 | GET | `/v1/sessions/:name/contacts/check?phone=` | is on WhatsApp |
 | GET | `/v1/sessions/:name/contacts/:chatId/picture` | profile picture url |
@@ -111,9 +78,17 @@ Cleaner and consistent. Session in the path, one unified send shape.
 | PUT | `/v1/sessions/:name/groups/:groupId/subject\|description` | update |
 | GET/POST | `/v1/sessions/:name/groups/:groupId/invite` | get / `invite/revoke` |
 | POST | `/v1/sessions/:name/groups/accept` | `{code}` |
+| POST | `/v1/sessions/:name/status` | `{text?, media?, statusJidList?}` |
+| POST/GET/DELETE | `/v1/sessions/:name/channels` | create / metadata / follow / delete |
 | POST | `/v1/sessions/:name/auth/pairing-code` | `{phone}` (alternative to QR) |
 | PUT | `/v1/sessions/:name/webhooks` | `{urls:[...]}` |
 | GET | `/v1/events` | Server-Sent Events stream |
+
+### `/api`
+
+Flatter endpoints with the session in the body: `sendText`, `sendImage`, `sendFile`, `sendVoice`, `sendVideo`, `sendLocation`, `sendContact`, `sendPoll`, `sendSeen`, `reaction`, `startTyping`/`stopTyping`, session lifecycle, `:session/auth/qr`, `:session/chats/:chatId/messages`, `:session/groups`, `contacts/check-exists`.
+
+Media takes `{data}` (base64) or `{url}` (Pigeon fetches it server-side). Chat ids are `<number>@s.whatsapp.net` for people and `<id>@g.us` for groups.
 
 ## Configuration
 
@@ -132,53 +107,14 @@ Cleaner and consistent. Session in the path, one unified send shape.
 
 ```
 HTTP (Fastify)
- |- /api/*   WAHA-compat adapter --+
- |- /v1/*    native API ----------+
-                                  v   one clean core
+ |- /v1/*    versioned API ----+
+ |- /api/*   flat endpoints ---+
+                               v   one core
    SessionManager . MessageService . MediaService
    HistoryStore . WebhookDispatcher . SQLite auth state
-                                  |
-                            Baileys socket(s)
+                               |
+                         Baileys socket(s)
 ```
-
-The compat adapter is a thin translation over the same core the native API uses, so there is one implementation of each capability, not two.
-
-## Pigeon vs WAHA
-
-Pigeon covers most of WAHA's messaging surface: sends, message actions, presence, groups, profile, and webhooks. The headline difference is that what WAHA charges for (media and voice sending, multiple sessions, HMAC-signed webhooks) is free here. Pigeon deliberately skips the human-facing extras (a dashboard, Swagger UI) that don't fit an automation-first tool.
-
-| Feature | WAHA | Pigeon |
-| --- | --- | --- |
-| License / cost | Core free, Plus paid | MIT, fully free |
-| Send text | Core | Yes |
-| Send image / file / video | Plus only | Yes |
-| Send voice note | Plus only | Yes |
-| Send location | Yes | Yes |
-| Send contact (vCard) | Yes | Yes |
-| Send poll | Yes | Yes |
-| Reactions, edit, delete, forward | Yes | Yes |
-| Typing / presence | Yes | Yes |
-| Multiple sessions | Limited in Core | Unlimited |
-| Receive messages + webhooks | Yes | Yes |
-| Webhook HMAC signing | Plus only | Yes |
-| Webhook event types | Many typed | Message, ack, reaction, presence, group |
-| Live event stream | WebSocket | Server-Sent Events |
-| Message history | Yes (S3/Postgres are Plus) | Built-in SQLite |
-| Media download | Yes | Yes |
-| Groups: list + full management | Yes | Yes |
-| Contacts: check, picture, block | Yes | Yes |
-| Contacts: full address book | Yes | No |
-| Profile: name, status, picture | Yes | Yes |
-| Pairing: QR + phone code | Yes | Yes |
-| Status / stories | Yes | Yes |
-| Channels: create / follow / metadata | Yes | Yes |
-| Labels (WhatsApp Business) | Yes | No |
-| Buttons / lists / interactive | Yes (gated) | No (gated by Meta) |
-| Engines | NOWEB, WEBJS, GOWS | Baileys (NOWEB) |
-| Dashboard UI / Swagger | Yes | No (by design) |
-| Maturity | Mature product | New, single maintainer |
-
-What's left to WAHA: alternative engines to fall back on, the full contact address book, labels, status, channels, and a dashboard UI. If you need those, use WAHA. If you want a clean, automation-first API with media and the rest ungated, self-hosted and MIT, use Pigeon.
 
 ## Storage
 
@@ -194,7 +130,7 @@ Pigeon is built for personal automation, prototyping, and development. It has no
 
 ## Credits
 
-Built by [Jean Galea](https://jeangalea.com).
+Built by Jean Galea.
 
 If you want WhatsApp, or any messaging, done properly for a business on the official APIs, that's what [AgentVania](https://agentvania.com) does.
 

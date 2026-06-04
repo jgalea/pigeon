@@ -16,7 +16,8 @@ describe('MessageService', () => {
   it('sends text and returns id', async () => {
     const { sock, svc } = deps()
     const r = await svc.send('default', { chatId: 'a@c.us', type: 'text', text: 'hi' })
-    expect(sock.sendMessage).toHaveBeenCalledWith('a@c.us', { text: 'hi' })
+    // chatId is normalized from WAHA-style @c.us to Baileys @s.whatsapp.net
+    expect(sock.sendMessage).toHaveBeenCalledWith('a@s.whatsapp.net', { text: 'hi' })
     expect(r.id).toBe('OUT1')
   })
 

@@ -1,12 +1,10 @@
 import type { SessionManager } from './sessionManager.js'
 import type { MediaService } from './mediaService.js'
 import type { PresenceType } from './types.js'
+import { normalizeJid as toJid } from './jid.js'
 
 type ParticipantAction = 'add' | 'remove' | 'promote' | 'demote'
 type GroupSetting = 'announcement' | 'not_announcement' | 'locked' | 'unlocked'
-
-const toJid = (idOrPhone: string) =>
-  idOrPhone.includes('@') ? idOrPhone : `${idOrPhone.replace(/[^0-9]/g, '')}@s.whatsapp.net`
 
 export class WaService {
   constructor(
