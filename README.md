@@ -170,7 +170,10 @@ Pigeon covers most of WAHA's messaging surface: sends, message actions, presence
 | Contacts: full address book | Yes | No |
 | Profile: name, status, picture | Yes | Yes |
 | Pairing: QR + phone code | Yes | Yes |
-| Labels, status, channels | Yes | No |
+| Status / stories | Yes | Yes |
+| Channels: create / follow / metadata | Yes | Yes |
+| Labels (WhatsApp Business) | Yes | No |
+| Buttons / lists / interactive | Yes (gated) | No (gated by Meta) |
 | Engines | NOWEB, WEBJS, GOWS | Baileys (NOWEB) |
 | Dashboard UI / Swagger | Yes | No (by design) |
 | Maturity | Mature product | New, single maintainer |

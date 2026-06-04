@@ -123,6 +123,42 @@ export class WaService {
     return Object.values(groups).map((g) => ({ id: g.id, name: g.subject }))
   }
 
+  // --- status / stories ---
+  async postStatus(
+    session: string,
+    o: { text?: string; media?: { data?: string; url?: string; mimetype?: string }; statusJidList?: string[] },
+  ) {
+    const sock = this.sock(session)
+    const content = o.media
+      ? { image: await this.media.resolveOutgoing(o.media), caption: o.text }
+      : { text: o.text ?? '' }
+    const opts = { statusJidList: (o.statusJidList ?? []).map(toJid), broadcast: true }
+    const res = (await sock.sendMessage('status@broadcast' as never, content as never, opts as never)) as {
+      key?: { id?: string }
+    }
+    return { id: res?.key?.id ?? '' }
+  }
+
+  // --- channels (newsletters) ---
+  async channelCreate(session: string, name: string, description?: string) {
+    return this.sock(session).newsletterCreate(name as never, { description } as never)
+  }
+  async channelMetadata(session: string, channelId: string) {
+    return this.sock(session).newsletterMetadata('jid' as never, channelId as never)
+  }
+  async channelFollow(session: string, channelId: string) {
+    await this.sock(session).newsletterFollow(channelId as never)
+    return { success: true }
+  }
+  async channelUnfollow(session: string, channelId: string) {
+    await this.sock(session).newsletterUnfollow(channelId as never)
+    return { success: true }
+  }
+  async channelDelete(session: string, channelId: string) {
+    await this.sock(session).newsletterDelete(channelId as never)
+    return { success: true }
+  }
+
   // --- pairing code (alternative to QR) ---
   async requestPairingCode(session: string, phone: string) {
     const code = (await this.sock(session).requestPairingCode(phone.replace(/[^0-9]/g, '') as never)) as string

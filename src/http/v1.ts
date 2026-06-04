@@ -156,6 +156,40 @@ export async function registerV1(app: FastifyInstance, core: Core) {
     return core.wa.groupSetting(p.name, decodeURIComponent(p.groupId), b.setting)
   })
 
+  // --- status / stories ---
+  app.post('/v1/sessions/:name/status', async (req) => {
+    const name = (req.params as { name: string }).name
+    const b = req.body as {
+      text?: string
+      media?: { data?: string; url?: string; mimetype?: string }
+      statusJidList?: string[]
+    }
+    return core.wa.postStatus(name, b)
+  })
+
+  // --- channels (newsletters) ---
+  app.post('/v1/sessions/:name/channels', async (req) => {
+    const name = (req.params as { name: string }).name
+    const b = req.body as { name: string; description?: string }
+    return core.wa.channelCreate(name, b.name, b.description)
+  })
+  app.get('/v1/sessions/:name/channels/:channelId', async (req) => {
+    const p = req.params as { name: string; channelId: string }
+    return core.wa.channelMetadata(p.name, decodeURIComponent(p.channelId))
+  })
+  app.post('/v1/sessions/:name/channels/:channelId/follow', async (req) => {
+    const p = req.params as { name: string; channelId: string }
+    return core.wa.channelFollow(p.name, decodeURIComponent(p.channelId))
+  })
+  app.post('/v1/sessions/:name/channels/:channelId/unfollow', async (req) => {
+    const p = req.params as { name: string; channelId: string }
+    return core.wa.channelUnfollow(p.name, decodeURIComponent(p.channelId))
+  })
+  app.delete('/v1/sessions/:name/channels/:channelId', async (req) => {
+    const p = req.params as { name: string; channelId: string }
+    return core.wa.channelDelete(p.name, decodeURIComponent(p.channelId))
+  })
+
   // --- pairing code (alternative to QR) ---
   app.post('/v1/sessions/:name/auth/pairing-code', async (req) => {
     const name = (req.params as { name: string }).name
