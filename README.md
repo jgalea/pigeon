@@ -153,13 +153,13 @@ If you need WAHA's full breadth (engines to fall back on, groups and contacts ad
 
 SQLite under `WA_DATA_DIR` holds session auth state and message history. Media lives under `WA_MEDIA_DIR` with a lifetime cleanup. Both are mounted volumes, so they survive container rebuilds.
 
-## Scope and responsible use
+## Disclaimer
 
-Pigeon talks to WhatsApp through Baileys, an unofficial library that automates a regular WhatsApp account. That is against WhatsApp's Terms of Service, and accounts using unofficial automation can be banned. Pigeon is built for personal automation, prototyping, internal tooling, and development, on a number you control.
+Pigeon is not affiliated with, endorsed by, or connected to WhatsApp or Meta. It uses Baileys, an unofficial library, to automate a WhatsApp account. This is not officially supported, and accounts using automation can be restricted. Use it at your own risk, on a number you control.
 
-It is deliberately not built for cold or bulk outreach. There are no mass-send helpers, and there won't be. If you message people who did not ask to hear from you, you will get the number banned and, depending on where you operate, you may break the law (in the EU, GDPR and unsolicited-communication rules apply).
+## Scope
 
-For business or marketing messaging at any scale, use the official WhatsApp Business Platform (Cloud API). That is the sanctioned, durable path, and it is what you should build a real product on. Pigeon is the workshop tool, not the production channel.
+Pigeon is built for personal automation, prototyping, and development. It has no bulk-send features by design. Message people who have agreed to hear from you, respect local law, and for business or marketing messaging at scale use the official WhatsApp Business Platform.
 
 ## Credits
 
