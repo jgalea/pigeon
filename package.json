@@ -1,7 +1,7 @@
 {
   "name": "pigeon",
   "version": "1.0.0",
-  "description": "Self-hosted WhatsApp HTTP API on Baileys. Media, voice, multi-session, and webhooks over a simple REST interface.",
+  "description": "Self-hosted WhatsApp automation system. REST API for messaging, media, groups, presence, and webhooks.",
   "main": "dist/index.js",
   "directories": {
     "doc": "docs"

@@ -1,6 +1,6 @@
 # Pigeon
 
-A self-hosted WhatsApp HTTP API. Send and receive WhatsApp messages over a simple REST interface, on a server you control. Built on Baileys, runs in Docker, stores everything in SQLite.
+A self-hosted WhatsApp automation system. Send and receive WhatsApp messages over a simple REST interface, on a server you control. Built on Baileys, runs in Docker, stores everything in SQLite.
 
 ## Features
 
