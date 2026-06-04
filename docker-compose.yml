@@ -1,0 +1,23 @@
+services:
+  pigeon:
+    build: .
+    container_name: pigeon
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:4000:3000"
+    environment:
+      - WA_API_KEY=${WA_API_KEY}
+      - WA_PORT=3000
+      - WA_HOST=0.0.0.0
+      - WA_DATA_DIR=/app/data
+      - WA_MEDIA_DIR=/app/media
+      - WA_MEDIA_LIFETIME_DAYS=180
+      - WA_LOG_LEVEL=info
+    volumes:
+      - ./data:/app/data
+      - ./media:/app/media
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"fetch('http://localhost:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""]
+      interval: 30s
+      timeout: 5s
+      retries: 3
