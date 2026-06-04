@@ -21,7 +21,6 @@ export async function realMakeSocket(auth: unknown, logger: Logger): Promise<WAS
     auth: auth as never,
     logger: logger as never,
     browser: ['pigeon', 'Chrome', '1.0'],
-    syncFullHistory: true,
   })
 }
 
