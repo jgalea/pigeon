@@ -14,6 +14,11 @@ function fakeSocket() {
   sock.sendMessage = async () => ({ key: { id: 'OUT1' } })
   sock.logout = async () => {}
   sock.end = () => {}
+  sock.fetchHistoryCalls = [] as unknown[]
+  sock.fetchMessageHistory = async (count: number, key: unknown, ts: number) => {
+    ;(sock.fetchHistoryCalls as unknown[]).push({ count, key, ts })
+    return 'REQ1'
+  }
   return sock
 }
 
@@ -52,5 +57,37 @@ describe('SessionManager', () => {
     })
     const msgs = hs.list('default', 'a@s.whatsapp.net', 5)
     expect(msgs[0].body).toBe('hello')
+  })
+
+  it('persists the history-sync backlog from messaging-history.set', async () => {
+    const { mgr, sock, hs } = newManager()
+    await mgr.start('default')
+    sock.emit('messaging-history.set', {
+      syncType: 2,
+      messages: [
+        { key: { remoteJid: 'b@s.whatsapp.net', id: 'H1', fromMe: false }, messageTimestamp: 50, message: { conversation: 'old one' } },
+        { key: { remoteJid: 'b@s.whatsapp.net', id: 'H2', fromMe: true }, messageTimestamp: 60, message: { conversation: 'old two' } },
+      ],
+    })
+    const msgs = hs.list('default', 'b@s.whatsapp.net', 5)
+    expect(msgs.map((m) => m.msgId)).toEqual(['H2', 'H1'])
+  })
+
+  it('backfill calls fetchMessageHistory anchored on the oldest stored message', async () => {
+    const { mgr, sock, hs } = newManager()
+    await mgr.start('default')
+    hs.save({ session: 'default', chatId: 'c@s.whatsapp.net', msgId: 'OLD', fromMe: false, timestamp: 10, type: 'text', body: 'anchor', raw: {} })
+    hs.save({ session: 'default', chatId: 'c@s.whatsapp.net', msgId: 'NEW', fromMe: true, timestamp: 20, type: 'text', body: 'newer', raw: {} })
+    const res = await mgr.backfill('default', 'c@c.us', 30)
+    expect(res.requestId).toBe('REQ1')
+    expect(sock.fetchHistoryCalls).toEqual([
+      { count: 30, key: { remoteJid: 'c@s.whatsapp.net', id: 'OLD', fromMe: false }, ts: 10 },
+    ])
+  })
+
+  it('backfill rejects when the chat has no stored anchor message', async () => {
+    const { mgr } = newManager()
+    await mgr.start('default')
+    await expect(mgr.backfill('default', 'nobody@c.us', 30)).rejects.toThrow(/page back from/)
   })
 })

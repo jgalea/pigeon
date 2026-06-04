@@ -46,6 +46,13 @@ export async function registerV1(app: FastifyInstance, core: Core) {
     return core.history.list(p.name, decodeURIComponent(p.chatId), Number(q.limit ?? 100))
   })
 
+  // Request older history for a chat. Persists asynchronously; re-query messages after.
+  app.post('/v1/sessions/:name/chats/:chatId/backfill', async (req) => {
+    const p = req.params as { name: string; chatId: string }
+    const b = (req.body ?? {}) as { count?: number }
+    return core.sessions.backfill(p.name, decodeURIComponent(p.chatId), b.count ?? 50)
+  })
+
   // --- message actions ---
   app.post('/v1/sessions/:name/react', async (req) => {
     const name = (req.params as { name: string }).name

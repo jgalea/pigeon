@@ -5,6 +5,7 @@ export class HistoryStore {
   private ins
   private sel
   private one
+  private oldestStmt
   private chatsStmt
 
   constructor(db: DB) {
@@ -14,6 +15,7 @@ export class HistoryStore {
         body=excluded.body, caption=excluded.caption, media_path=excluded.media_path, raw=excluded.raw, timestamp=excluded.timestamp`)
     this.sel = db.prepare(`SELECT * FROM messages WHERE session=? AND chat_id=? ORDER BY timestamp DESC LIMIT ?`)
     this.one = db.prepare(`SELECT * FROM messages WHERE session=? AND chat_id=? AND msg_id=?`)
+    this.oldestStmt = db.prepare(`SELECT * FROM messages WHERE session=? AND chat_id=? ORDER BY timestamp ASC LIMIT 1`)
     this.chatsStmt = db.prepare(
       `SELECT chat_id, MAX(timestamp) AS ts, COUNT(*) AS n FROM messages WHERE session=? GROUP BY chat_id ORDER BY ts DESC LIMIT ?`,
     )
@@ -56,6 +58,11 @@ export class HistoryStore {
 
   get(session: string, chatId: string, msgId: string): NormalizedMessage | undefined {
     const row = this.one.get(session, chatId, msgId) as Record<string, unknown> | undefined
+    return row ? this.toMessage(row) : undefined
+  }
+
+  oldest(session: string, chatId: string): NormalizedMessage | undefined {
+    const row = this.oldestStmt.get(session, chatId) as Record<string, unknown> | undefined
     return row ? this.toMessage(row) : undefined
   }
 

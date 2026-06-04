@@ -7,6 +7,7 @@ import makeWASocket, {
 import type { Boom } from '@hapi/boom'
 import type { DB } from '../db/database.js'
 import { useSqliteAuthState } from '../db/authStore.js'
+import { normalizeJid } from './jid.js'
 import type { HistoryStore } from '../db/historyStore.js'
 import type { Logger } from '../logger.js'
 import type { SessionStatus, NormalizedMessage } from './types.js'
@@ -20,6 +21,7 @@ export async function realMakeSocket(auth: unknown, logger: Logger): Promise<WAS
     auth: auth as never,
     logger: logger as never,
     browser: ['pigeon', 'Chrome', '1.0'],
+    syncFullHistory: true,
   })
 }
 
@@ -109,6 +111,19 @@ export class SessionManager extends EventEmitter {
       }
     })
 
+    // Backlog from WhatsApp: the sync pushed at pairing, plus on-demand batches
+    // returned by fetchMessageHistory(). Persist quietly; no per-message webhooks.
+    sock.ev.on('messaging-history.set', (h: { messages?: unknown[]; syncType?: unknown }) => {
+      let saved = 0
+      for (const msg of h.messages ?? []) {
+        const n = this.normalize(name, msg as Record<string, never>)
+        if (!n) continue
+        this.history.save(n)
+        saved++
+      }
+      if (saved) this.emit('event', { session: name, event: 'history.set', payload: { saved, syncType: h.syncType }, timestamp: Date.now() })
+    })
+
     const relay = (event: string) => (payload: unknown) =>
       this.emit('event', { session: name, event, payload, timestamp: Date.now() })
 
@@ -147,6 +162,25 @@ export class SessionManager extends EventEmitter {
       caption,
       raw: msg,
     }
+  }
+
+  // Request older messages for a chat from WhatsApp. Results arrive
+  // asynchronously via the 'messaging-history.set' handler above and are
+  // persisted there; this returns the request id, not the messages.
+  async backfill(name: string, chatId: string, count = 50): Promise<{ requestId: string }> {
+    const sock = this.entries.get(name)?.sock
+    if (!sock) throw new Error('session not started')
+    const anchor =
+      this.history.oldest(name, normalizeJid(chatId)) ?? this.history.oldest(name, chatId)
+    if (!anchor) {
+      throw new Error('no stored message in this chat to page back from; send or receive one first')
+    }
+    const key = { remoteJid: anchor.chatId, id: anchor.msgId, fromMe: anchor.fromMe }
+    const fetchHistory = (sock as { fetchMessageHistory?: (c: number, k: unknown, t: number) => Promise<string> })
+      .fetchMessageHistory
+    if (!fetchHistory) throw new Error('fetchMessageHistory not supported by this engine')
+    const requestId = await fetchHistory(count, key, anchor.timestamp)
+    return { requestId }
   }
 
   async stop(name: string): Promise<void> {

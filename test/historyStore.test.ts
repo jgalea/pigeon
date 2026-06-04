@@ -26,4 +26,11 @@ describe('HistoryStore', () => {
     expect(list).toHaveLength(1)
     expect(list[0].body).toBe('edited')
   })
+
+  it('returns the oldest message for a chat', () => {
+    store.save({ session: 'default', chatId: 'a@c.us', msgId: '2', fromMe: true, timestamp: 200, type: 'text', body: 'newer', raw: {} })
+    store.save({ session: 'default', chatId: 'a@c.us', msgId: '1', fromMe: false, timestamp: 100, type: 'text', body: 'older', raw: {} })
+    expect(store.oldest('default', 'a@c.us')?.msgId).toBe('1')
+    expect(store.oldest('default', 'empty@c.us')).toBeUndefined()
+  })
 })
