@@ -1,4 +1,5 @@
 import type { FastifyInstance } from 'fastify'
+import { downloadMediaMessage } from '@whiskeysockets/baileys'
 import type { Core } from './server.js'
 import type { OutgoingMessage, PresenceType } from '../core/types.js'
 
@@ -44,6 +45,35 @@ export async function registerV1(app: FastifyInstance, core: Core) {
     const p = req.params as { name: string; chatId: string }
     const q = req.query as { limit?: string }
     return core.history.list(p.name, decodeURIComponent(p.chatId), Number(q.limit ?? 100))
+  })
+
+  // Download (decrypt) inbound media for a stored message. Returns the raw bytes.
+  app.get('/v1/sessions/:name/chats/:chatId/messages/:msgId/media', async (req, reply) => {
+    const p = req.params as { name: string; chatId: string; msgId: string }
+    const msg = core.history.get(p.name, decodeURIComponent(p.chatId), p.msgId)
+    if (!msg) return reply.code(404).send({ error: 'message not found' })
+    const sock = core.sessions.socket(p.name)
+    if (!sock) return reply.code(409).send({ error: 'session not started' })
+    const content = (msg.raw as { message?: Record<string, unknown> } | undefined)?.message ?? {}
+    const docLike =
+      (content.documentMessage ??
+        content.imageMessage ??
+        content.videoMessage ??
+        content.audioMessage) as { fileName?: string; mimetype?: string } | undefined
+    if (!docLike) return reply.code(415).send({ error: 'message has no downloadable media' })
+    const buffer = (await downloadMediaMessage(
+      msg.raw as Parameters<typeof downloadMediaMessage>[0],
+      'buffer',
+      {},
+      {
+        logger: core.logger,
+        reuploadRequest: sock.updateMediaMessage,
+      } as NonNullable<Parameters<typeof downloadMediaMessage>[3]>,
+    )) as Buffer
+    const filename = docLike.fileName ?? `${p.msgId}.bin`
+    reply.header('Content-Type', docLike.mimetype ?? 'application/octet-stream')
+    reply.header('Content-Disposition', `attachment; filename="${filename.replace(/"/g, '')}"`)
+    return reply.send(buffer)
   })
 
   // Request older history for a chat. Persists asynchronously; re-query messages after.
