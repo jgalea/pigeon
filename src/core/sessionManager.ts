@@ -135,9 +135,19 @@ export class SessionManager extends EventEmitter {
   }
 
   private normalize(session: string, msg: Record<string, never>): NormalizedMessage | undefined {
-    const key = (msg as { key?: { remoteJid?: string; id?: string; fromMe?: boolean } }).key
-    const jid = key?.remoteJid
-    if (!jid || !key?.id) return undefined
+    const key = (msg as {
+      key?: { remoteJid?: string; remoteJidAlt?: string; id?: string; fromMe?: boolean }
+    }).key
+    const rawJid = key?.remoteJid
+    if (!rawJid || !key?.id) return undefined
+    // WhatsApp's lid addressing files a 1:1 chat under an @lid JID, while
+    // remoteJidAlt carries the stable phone-number JID. Key the conversation by
+    // the phone JID so inbound replies aren't split off under a separate @lid id
+    // that lookups (which use the phone JID) never match.
+    const jid =
+      rawJid.endsWith('@lid') && key.remoteJidAlt?.endsWith('@s.whatsapp.net')
+        ? key.remoteJidAlt
+        : rawJid
     const content = (msg as { message?: Record<string, unknown> }).message ?? {}
     const type = Object.keys(content)[0] ?? 'unknown'
     const body =
