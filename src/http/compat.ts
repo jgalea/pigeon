@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify'
 import type { Core } from './server.js'
 import type { OutgoingMessage, OutgoingType } from '../core/types.js'
+import { normalizeJid } from '../core/jid.js'
 
 interface CompatFile {
   data?: string
@@ -117,7 +118,7 @@ export async function registerCompat(app: FastifyInstance, core: Core) {
     const p = req.params as { session: string; chatId: string }
     const q = req.query as { limit?: string }
     const limit = Number(q.limit ?? 100)
-    return core.history.list(p.session, decodeURIComponent(p.chatId), limit).map((m) => ({
+    return core.history.list(p.session, normalizeJid(decodeURIComponent(p.chatId)), limit).map((m) => ({
       id: m.msgId,
       timestamp: m.timestamp,
       fromMe: m.fromMe,

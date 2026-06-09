@@ -76,6 +76,13 @@ describe('compat /api', () => {
     expect(body[0]).toMatchObject({ id: '1', body: 'hi', fromMe: false })
   })
 
+  it('GET chats messages normalizes @c.us to the stored @s.whatsapp.net JID', async () => {
+    const core = coreMock()
+    const app = await appWith(core)
+    await app.inject({ method: 'GET', url: '/api/default/chats/34600000000%40c.us/messages?limit=10' })
+    expect(core.history.list).toHaveBeenCalledWith('default', '34600000000@s.whatsapp.net', 10)
+  })
+
   it('GET groups returns id+name', async () => {
     const app = await appWith(coreMock())
     const r = await app.inject({ method: 'GET', url: '/api/default/groups' })

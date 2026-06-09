@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify'
 import { downloadMediaMessage } from '@whiskeysockets/baileys'
 import type { Core } from './server.js'
 import type { OutgoingMessage, PresenceType } from '../core/types.js'
+import { normalizeJid } from '../core/jid.js'
 
 export async function registerV1(app: FastifyInstance, core: Core) {
   app.get('/v1/sessions', async () => core.sessions.list())
@@ -44,13 +45,13 @@ export async function registerV1(app: FastifyInstance, core: Core) {
   app.get('/v1/sessions/:name/chats/:chatId/messages', async (req) => {
     const p = req.params as { name: string; chatId: string }
     const q = req.query as { limit?: string }
-    return core.history.list(p.name, decodeURIComponent(p.chatId), Number(q.limit ?? 100))
+    return core.history.list(p.name, normalizeJid(decodeURIComponent(p.chatId)), Number(q.limit ?? 100))
   })
 
   // Download (decrypt) inbound media for a stored message. Returns the raw bytes.
   app.get('/v1/sessions/:name/chats/:chatId/messages/:msgId/media', async (req, reply) => {
     const p = req.params as { name: string; chatId: string; msgId: string }
-    const msg = core.history.get(p.name, decodeURIComponent(p.chatId), p.msgId)
+    const msg = core.history.get(p.name, normalizeJid(decodeURIComponent(p.chatId)), p.msgId)
     if (!msg) return reply.code(404).send({ error: 'message not found' })
     const sock = core.sessions.socket(p.name)
     if (!sock) return reply.code(409).send({ error: 'session not started' })
