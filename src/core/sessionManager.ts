@@ -1,5 +1,6 @@
 import { EventEmitter } from 'node:events'
 import makeWASocket, {
+  Browsers,
   DisconnectReason,
   fetchLatestBaileysVersion,
   type WASocket,
@@ -20,7 +21,9 @@ export async function realMakeSocket(auth: unknown, logger: Logger): Promise<WAS
     version,
     auth: auth as never,
     logger: logger as never,
-    browser: ['pigeon', 'Chrome', '1.0'],
+    // WhatsApp validates the browser fingerprint at pairing; Business app
+    // accounts reject unrecognized names like the old ['pigeon', ...] triple.
+    browser: Browsers.macOS('Google Chrome'),
   })
 }
 
