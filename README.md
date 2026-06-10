@@ -13,7 +13,7 @@
   <a href="https://agentvania.com"><img src="https://img.shields.io/badge/Built%20by-AgentVania-6A462F?style=for-the-badge" alt="Built by AgentVania"></a>
 </p>
 
-A self-hosted WhatsApp automation system. Send and receive WhatsApp messages over a simple REST interface, on a server you control. Built on Baileys, runs in Docker, stores everything in SQLite.
+A self-hosted WhatsApp automation system. Send and receive WhatsApp messages over a simple REST interface, on a server you control — or plug it into AI tools through the built-in MCP server. Built on Baileys, runs in Docker, stores everything in SQLite.
 
 ## Features
 
@@ -25,6 +25,7 @@ A self-hosted WhatsApp automation system. Send and receive WhatsApp messages ove
 | **Groups & profile** | Create and manage groups (participants, invite links, settings); set your name, status, and picture; block and unblock. |
 | **Receive & react** | Incoming messages persisted to SQLite, with per-session webhooks (retry, backoff, optional HMAC signing) and a Server-Sent Events stream. |
 | **Multi-session** | Run several numbers from one instance. QR or phone-code pairing over HTTP. |
+| **MCP server** | Built-in [MCP server](#mcp-server) so AI agents (Claude Code, Claude Desktop, and friends) can read chats and send messages as native tools. |
 | **Built to run** | Auto-reconnect, per-session send queue with light rate limiting, one Docker container with two mounted volumes. |
 
 ## Requirements
