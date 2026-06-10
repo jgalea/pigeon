@@ -108,6 +108,27 @@ Flatter endpoints with the session in the body: `sendText`, `sendImage`, `sendFi
 
 Media takes `{data}` (base64) or `{url}` (Pigeon fetches it server-side). Chat ids are `<number>@s.whatsapp.net` for people and `<id>@g.us` for groups.
 
+## MCP server
+
+Pigeon ships an MCP (Model Context Protocol) server so AI tools like Claude Code can use WhatsApp directly. It runs over stdio and talks to a running Pigeon instance via the REST API.
+
+Tools: `session_status`, `list_chats`, `read_messages`, `send_message`, `send_media`, `mark_read`, `check_contact`.
+
+Register it with your MCP client, e.g. in a `.mcp.json`:
+
+```json
+{
+  "mcpServers": {
+    "pigeon": {
+      "command": "node",
+      "args": ["/path/to/pigeon/dist/mcp.js"]
+    }
+  }
+}
+```
+
+It reads `WA_API_KEY` (and optional `WA_API_URL`, `WA_SESSION`) from the environment, falling back to the `.env` in the project root. Build first with `npm run build`.
+
 ## Configuration
 
 | Variable | Default | Purpose |
@@ -120,6 +141,8 @@ Media takes `{data}` (base64) or `{url}` (Pigeon fetches it server-side). Chat i
 | `WA_MEDIA_LIFETIME_DAYS` | `180` | media cleanup window |
 | `WA_LOG_LEVEL` | `info` | pino log level |
 | `WA_WEBHOOK_SECRET` | (unset) | if set, sign webhooks with an `x-pigeon-signature` HMAC |
+| `WA_API_URL` | `http://127.0.0.1:4000` | Pigeon base URL (MCP server only) |
+| `WA_SESSION` | `default` | session the MCP server operates on |
 
 ## How it works
 
