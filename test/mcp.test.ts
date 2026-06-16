@@ -114,9 +114,38 @@ describe('pigeon mcp', () => {
   })
 })
 
+describe('pigeon mcp draft-only mode', () => {
+  it('drafts instead of sending and announces the mode', async () => {
+    const url = `http://127.0.0.1:${(app.server.address() as { port: number }).port}`
+    const server = buildServer({ url, apiKey: 'k', session: 'default', readOnly: true })
+    const c = new Client({ name: 'ro', version: '0.0.0' })
+    const [ct, st] = InMemoryTransport.createLinkedPair()
+    await server.connect(st)
+    await c.connect(ct)
+
+    const before = sent.length
+    const r = await c.callTool({ name: 'send_message', arguments: { chatId: '34600111222', text: 'hello' } })
+    const out = JSON.parse(textOf(r))
+    expect(out.sent).toBe(false)
+    expect(out.mode).toBe('draft-only')
+    expect(out.draft).toEqual({ to: '34600111222', type: 'text', text: 'hello' })
+    expect(sent.length).toBe(before)
+
+    const { tools } = await c.listTools()
+    expect(tools.find((t) => t.name === 'send_message')?.description).toContain('DRAFT-ONLY')
+    await c.close()
+  })
+})
+
 describe('loadMcpConfig', () => {
   it('uses env vars when set', () => {
     const cfg = loadMcpConfig({ WA_API_KEY: 'x', WA_API_URL: 'http://h:1/', WA_SESSION: 's1' } as NodeJS.ProcessEnv)
-    expect(cfg).toEqual({ url: 'http://h:1', apiKey: 'x', session: 's1' })
+    expect(cfg).toEqual({ url: 'http://h:1', apiKey: 'x', session: 's1', readOnly: false })
+  })
+
+  it('parses WA_MCP_READONLY as a boolean flag', () => {
+    expect(loadMcpConfig({ WA_API_KEY: 'x', WA_MCP_READONLY: 'true' } as NodeJS.ProcessEnv).readOnly).toBe(true)
+    expect(loadMcpConfig({ WA_API_KEY: 'x', WA_MCP_READONLY: '1' } as NodeJS.ProcessEnv).readOnly).toBe(true)
+    expect(loadMcpConfig({ WA_API_KEY: 'x', WA_MCP_READONLY: 'no' } as NodeJS.ProcessEnv).readOnly).toBe(false)
   })
 })

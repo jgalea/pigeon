@@ -130,6 +130,10 @@ Register it with your MCP client, e.g. in a `.mcp.json`:
 
 It reads `WA_API_KEY` (and optional `WA_API_URL`, `WA_SESSION`) from the environment, falling back to the `.env` in the project root. Build first with `npm run build`.
 
+### Draft-only mode
+
+Set `WA_MCP_READONLY=true` to run the MCP server in draft-only mode. `send_message` and `send_media` stop hitting WhatsApp: instead of sending, they return the composed draft (`sent: false`) for you to review. The read tools (`session_status`, `list_chats`, `read_messages`, `check_contact`) keep working. Use this when you want an assistant to draft replies but never send on its own. There's no per-call override, so it's a hard guarantee for that session.
+
 ## Configuration
 
 | Variable | Default | Purpose |
@@ -144,6 +148,7 @@ It reads `WA_API_KEY` (and optional `WA_API_URL`, `WA_SESSION`) from the environ
 | `WA_WEBHOOK_SECRET` | (unset) | if set, sign webhooks with an `x-pigeon-signature` HMAC |
 | `WA_API_URL` | `http://127.0.0.1:4000` | Pigeon base URL (MCP server only) |
 | `WA_SESSION` | `default` | session the MCP server operates on |
+| `WA_MCP_READONLY` | `false` | MCP server only; when true, send tools draft instead of sending |
 
 ## How it works
 

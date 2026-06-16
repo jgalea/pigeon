@@ -11,6 +11,12 @@ export interface McpConfig {
   url: string
   apiKey: string
   session: string
+  readOnly?: boolean
+}
+
+function envFlag(value: string | undefined): boolean {
+  const v = (value ?? '').trim().toLowerCase()
+  return v === '1' || v === 'true' || v === 'yes' || v === 'on'
 }
 
 function readEnvFile(): Record<string, string> {
@@ -35,6 +41,7 @@ export function loadMcpConfig(env = process.env): McpConfig {
     url: (env.WA_API_URL ?? fileEnv.WA_API_URL ?? 'http://127.0.0.1:4000').replace(/\/+$/, ''),
     apiKey,
     session: env.WA_SESSION ?? fileEnv.WA_SESSION ?? 'default',
+    readOnly: envFlag(env.WA_MCP_READONLY ?? fileEnv.WA_MCP_READONLY),
   }
 }
 
@@ -72,7 +79,12 @@ export function buildServer(cfg: McpConfig): McpServer {
   })
 
   const s = cfg.session
-  const server = new McpServer({ name: 'pigeon', version: '1.0.0' })
+  const server = new McpServer({ name: 'pigeon', version: '1.1.0' })
+
+  const draftNote =
+    ' DRAFT-ONLY MODE (WA_MCP_READONLY) is on: this does NOT send — it returns the composed draft for review.'
+  const draftSuffix = cfg.readOnly ? draftNote : ''
+  const notSent = 'NOT SENT. Pigeon is in draft-only mode (WA_MCP_READONLY). Present this draft to the user instead.'
 
   server.registerTool(
     'session_status',
@@ -118,20 +130,26 @@ export function buildServer(cfg: McpConfig): McpServer {
     'send_message',
     {
       description:
-        'Send a WhatsApp text message. chatId is a phone number with country code (no +) or a full JID. Returns the sent message id.',
+        'Send a WhatsApp text message. chatId is a phone number with country code (no +) or a full JID. Returns the sent message id.' +
+        draftSuffix,
       inputSchema: {
         chatId: z.string().describe('Phone number or JID of the recipient'),
         text: z.string().min(1).describe('Message text'),
       },
     },
-    async ({ chatId, text }) => asResult(await api('POST', `/v1/sessions/${s}/messages`, { chatId, type: 'text', text })),
+    async ({ chatId, text }) => {
+      if (cfg.readOnly) {
+        return asResult({ sent: false, mode: 'draft-only', draft: { to: chatId, type: 'text', text }, note: notSent })
+      }
+      return asResult(await api('POST', `/v1/sessions/${s}/messages`, { chatId, type: 'text', text }))
+    },
   )
 
   server.registerTool(
     'send_media',
     {
       description:
-        'Send an image, file, voice note, or video. Provide either a public url or a local file path.',
+        'Send an image, file, voice note, or video. Provide either a public url or a local file path.' + draftSuffix,
       inputSchema: {
         chatId: z.string().describe('Phone number or JID of the recipient'),
         type: z.enum(['image', 'file', 'voice', 'video']).describe('Kind of media message'),
@@ -143,6 +161,10 @@ export function buildServer(cfg: McpConfig): McpServer {
     },
     async ({ chatId, type, url, path, caption, mimetype }) => {
       if (!url && !path) throw new Error('provide url or path')
+      if (cfg.readOnly) {
+        const source = url ? { url } : { path, filename: path ? basename(path) : undefined }
+        return asResult({ sent: false, mode: 'draft-only', draft: { to: chatId, type, caption, ...source }, note: notSent })
+      }
       const media: Record<string, string> = {}
       if (url) media.url = url
       if (path) {
@@ -184,7 +206,8 @@ export function buildServer(cfg: McpConfig): McpServer {
 
 const isMain = process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)
 if (isMain) {
-  const server = buildServer(loadMcpConfig())
+  const cfg = loadMcpConfig()
+  const server = buildServer(cfg)
   await server.connect(new StdioServerTransport())
-  console.error('pigeon mcp server running on stdio')
+  console.error(`pigeon mcp server running on stdio${cfg.readOnly ? ' (draft-only mode: sending disabled)' : ''}`)
 }
