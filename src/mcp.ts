@@ -79,7 +79,7 @@ export function buildServer(cfg: McpConfig): McpServer {
   })
 
   const s = cfg.session
-  const server = new McpServer({ name: 'pigeon', version: '1.1.0' })
+  const server = new McpServer({ name: 'pigeon', version: '1.2.0' })
 
   const draftNote =
     ' DRAFT-ONLY MODE (WA_MCP_READONLY) is on: this does NOT send — it returns the composed draft for review.'
@@ -105,6 +105,24 @@ export function buildServer(cfg: McpConfig): McpServer {
       },
     },
     async ({ limit }) => asResult(await api('GET', `/v1/sessions/${s}/chats?limit=${limit ?? 50}`)),
+  )
+
+  server.registerTool(
+    'list_groups',
+    {
+      description:
+        'List the WhatsApp groups you belong to, each with its name (subject) and group id (...@g.us). Use this to resolve a group name to its id before posting. Optionally pass query to filter by a case-insensitive substring of the name.',
+      inputSchema: {
+        query: z.string().optional().describe('Case-insensitive substring to filter group names by'),
+      },
+    },
+    async ({ query }) => {
+      const groups = (await api('GET', `/v1/sessions/${s}/groups`)) as Array<{ id: string; name: string }>
+      const filtered = query
+        ? groups.filter((g) => (g.name ?? '').toLowerCase().includes(query.toLowerCase()))
+        : groups
+      return asResult(filtered)
+    },
   )
 
   server.registerTool(
