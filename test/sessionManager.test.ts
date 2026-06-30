@@ -59,6 +59,29 @@ describe('SessionManager', () => {
     expect(msgs[0].body).toBe('hello')
   })
 
+  it('surfaces a shared contact card as name + number in body', async () => {
+    const { mgr, sock, hs } = newManager()
+    await mgr.start('default')
+    sock.emit('messages.upsert', {
+      type: 'notify',
+      messages: [
+        {
+          key: { remoteJid: 'a@s.whatsapp.net', id: 'C1', fromMe: false },
+          messageTimestamp: 200,
+          message: {
+            contactMessage: {
+              displayName: 'Ana Costa',
+              vcard:
+                'BEGIN:VCARD\nVERSION:3.0\nN:Costa;Ana;;;\nFN:Ana Costa\nTEL;type=CELL;type=VOICE;waid=351912345678:+351 912 345 678\nEND:VCARD',
+            },
+          },
+        },
+      ],
+    })
+    const msgs = hs.list('default', 'a@s.whatsapp.net', 5)
+    expect(msgs[0].body).toBe('Ana Costa — +351 912 345 678')
+  })
+
   it('persists the history-sync backlog from messaging-history.set', async () => {
     const { mgr, sock, hs } = newManager()
     await mgr.start('default')

@@ -1,6 +1,7 @@
 import type { SessionManager } from './sessionManager.js'
 import type { HistoryStore } from '../db/historyStore.js'
 import type { MediaService } from './mediaService.js'
+import type { SendGuard } from './sendGuard.js'
 import type { OutgoingMessage, OutgoingContact, OutgoingPoll } from './types.js'
 import { normalizeJid } from './jid.js'
 
@@ -25,6 +26,7 @@ export class MessageService {
     private sessions: SessionManager,
     private history: HistoryStore,
     private media: MediaService,
+    private guard: SendGuard,
   ) {}
 
   private requireSocket(session: string) {
@@ -32,6 +34,24 @@ export class MessageService {
     const sock = this.sessions.socket(session)
     if (!sock) throw new Error(`session ${session} has no socket`)
     return sock
+  }
+
+  // Block first-contact ("cold") sends that match WhatsApp's spam patterns.
+  // Group/broadcast/newsletter sends and warm replies pass through untouched;
+  // a deliberate vetted send can set msg.force to bypass.
+  private applyGuard(session: string, msg: OutgoingMessage) {
+    if (msg.force) return
+    const jid = normalizeJid(msg.chatId)
+    if (jid.includes('@g.us') || jid.includes('@broadcast') || jid.includes('@newsletter')) return
+    const isCold = !this.history.hasInbound(session, jid)
+    const now = Date.now()
+    const verdict = this.guard.check(session, {
+      now,
+      isCold,
+      connectedAt: this.sessions.connectedAt(session),
+    })
+    if (!verdict.ok) throw new Error(`blocked by anti-spam guard: ${verdict.reason}`)
+    if (isCold) this.guard.record(session, now)
   }
 
   private enqueue<T>(session: string, fn: () => Promise<T>): Promise<T> {
@@ -48,6 +68,7 @@ export class MessageService {
 
   async send(session: string, msg: OutgoingMessage): Promise<{ id: string }> {
     const sock = this.requireSocket(session)
+    this.applyGuard(session, msg)
     return this.enqueue(session, async () => {
       const content = await this.buildContent(msg)
       const res = (await sock.sendMessage(normalizeJid(msg.chatId), content as never)) as

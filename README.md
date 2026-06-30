@@ -134,6 +134,12 @@ It reads `WA_API_KEY` (and optional `WA_API_URL`, `WA_SESSION`) from the environ
 
 Set `WA_MCP_READONLY=true` to run the MCP server in draft-only mode. `send_message` and `send_media` stop hitting WhatsApp: instead of sending, they return the composed draft (`sent: false`) for you to review. The read tools (`session_status`, `list_chats`, `read_messages`, `check_contact`) keep working. Use this when you want an assistant to draft replies but never send on its own. There's no per-call override, so it's a hard guarantee for that session.
 
+### Anti-spam guard
+
+WhatsApp restricts accounts that message strangers in bursts, especially right after linking a new device. The send guard enforces sane limits on *cold* sends — first contact with a number that has never messaged you. Warm replies and group messages pass through untouched.
+
+A cold send is blocked when it lands inside the post-link cooldown (`WA_GUARD_POST_CONNECT_MS`), too soon after the previous cold send (`WA_GUARD_COLD_MIN_GAP_MS`), or over the hourly/daily caps (`WA_GUARD_COLD_PER_HOUR`, `WA_GUARD_COLD_PER_DAY`). The send fails with a reason explaining the limit. Set `WA_SEND_GUARD=off` to disable it, or pass `"force": true` on a single send to bypass it for a deliberate, vetted message.
+
 ## Configuration
 
 | Variable | Default | Purpose |
@@ -149,6 +155,11 @@ Set `WA_MCP_READONLY=true` to run the MCP server in draft-only mode. `send_messa
 | `WA_API_URL` | `http://127.0.0.1:4000` | Pigeon base URL (MCP server only) |
 | `WA_SESSION` | `default` | session the MCP server operates on |
 | `WA_MCP_READONLY` | `false` | MCP server only; when true, send tools draft instead of sending |
+| `WA_SEND_GUARD` | `on` | anti-spam guard on cold (first-contact) sends; `off` to disable |
+| `WA_GUARD_POST_CONNECT_MS` | `120000` | pause cold sends for this long after the session links |
+| `WA_GUARD_COLD_MIN_GAP_MS` | `60000` | minimum gap between two cold sends |
+| `WA_GUARD_COLD_PER_HOUR` | `5` | max cold sends per rolling hour |
+| `WA_GUARD_COLD_PER_DAY` | `20` | max cold sends per rolling day |
 
 ## How it works
 

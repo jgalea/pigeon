@@ -4,6 +4,7 @@ import { openDb } from './db/database.js'
 import { HistoryStore } from './db/historyStore.js'
 import { SessionManager } from './core/sessionManager.js'
 import { MessageService } from './core/messageService.js'
+import { SendGuard } from './core/sendGuard.js'
 import { MediaService } from './core/mediaService.js'
 import { WebhookDispatcher } from './core/webhookDispatcher.js'
 import { WaService } from './core/waService.js'
@@ -16,7 +17,8 @@ const db = openDb(config.dataDir)
 const history = new HistoryStore(db)
 const media = new MediaService(config.mediaDir, config.mediaLifetimeDays, logger)
 const sessions = new SessionManager(db, history, logger)
-const messages = new MessageService(sessions, history, media)
+const guard = new SendGuard(config.guard)
+const messages = new MessageService(sessions, history, media, guard)
 const wa = new WaService(sessions, media)
 const webhooks = new WebhookDispatcher(logger, fetch, {
   retries: 3,

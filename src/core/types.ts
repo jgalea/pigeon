@@ -51,6 +51,8 @@ export interface OutgoingMessage {
   location?: { latitude: number; longitude: number }
   contact?: OutgoingContact
   poll?: OutgoingPoll
+  // Bypass the cold-send anti-spam guard for a deliberate, vetted send.
+  force?: boolean
 }
 
 export type PresenceType = 'available' | 'unavailable' | 'composing' | 'recording' | 'paused'

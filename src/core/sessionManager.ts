@@ -32,6 +32,42 @@ interface Entry {
   status: SessionStatus
   qr?: string
   saveCreds?: () => Promise<void>
+  connectedAt?: number
+}
+
+// Reduce a shared-contact vCard to a readable "Name — +phone" summary. The full
+// vCard is always kept in raw; this just surfaces the name and number(s) in body
+// so contact cards aren't blank in read_messages.
+function vcardSummary(vcard: string): string {
+  let name = ''
+  const phones: string[] = []
+  for (const line of vcard.split(/\r?\n/)) {
+    if (line.startsWith('FN:')) {
+      name = line.slice(3).trim()
+    } else if (/^TEL/i.test(line)) {
+      const colon = line.indexOf(':')
+      const value = colon >= 0 ? line.slice(colon + 1).trim() : ''
+      const waid = /waid=(\d+)/i.exec(line)?.[1]
+      const num = value || (waid ? `+${waid}` : '')
+      if (num) phones.push(num)
+    }
+  }
+  return [name, ...phones].filter(Boolean).join(' — ')
+}
+
+function contactBody(content: Record<string, unknown>): string | undefined {
+  const single = content.contactMessage as { displayName?: string; vcard?: string } | undefined
+  if (single?.vcard) return vcardSummary(single.vcard) || single.displayName
+  const arr = content.contactsArrayMessage as
+    | { displayName?: string; contacts?: { displayName?: string; vcard?: string }[] }
+    | undefined
+  if (arr?.contacts?.length) {
+    const parts = arr.contacts
+      .map((c) => (c.vcard ? vcardSummary(c.vcard) : c.displayName))
+      .filter(Boolean)
+    if (parts.length) return parts.join('\n')
+  }
+  return undefined
 }
 
 export class SessionManager extends EventEmitter {
@@ -49,13 +85,21 @@ export class SessionManager extends EventEmitter {
 
   private setStatus(name: string, status: SessionStatus) {
     const e = this.entries.get(name)
-    if (e) e.status = status
+    if (e) {
+      e.status = status
+      // Stamp the moment the link goes live so the send guard can pause cold
+      // outreach for a cooldown right after (re)linking a device.
+      if (status === 'WORKING') e.connectedAt = Date.now()
+    }
     this.db.prepare('UPDATE sessions SET status=? WHERE name=?').run(status, name)
     this.emit('status', { name, status })
   }
 
   status(name: string): SessionStatus {
     return this.entries.get(name)?.status ?? 'STOPPED'
+  }
+  connectedAt(name: string): number | undefined {
+    return this.entries.get(name)?.connectedAt
   }
   getQr(name: string): string | undefined {
     return this.entries.get(name)?.qr
@@ -155,7 +199,8 @@ export class SessionManager extends EventEmitter {
     const type = Object.keys(content)[0] ?? 'unknown'
     const body =
       (content.conversation as string) ??
-      ((content.extendedTextMessage as { text?: string })?.text)
+      ((content.extendedTextMessage as { text?: string })?.text) ??
+      contactBody(content)
     const caption =
       (content.imageMessage as { caption?: string })?.caption ??
       (content.videoMessage as { caption?: string })?.caption ??

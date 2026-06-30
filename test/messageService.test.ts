@@ -3,13 +3,15 @@ import { MessageService } from '../src/core/messageService.js'
 
 function deps(status = 'WORKING') {
   const sock = { sendMessage: vi.fn(async () => ({ key: { id: 'OUT1' } })), readMessages: vi.fn() }
-  const sessions = { socket: () => sock, status: () => status } as never
+  const sessions = { socket: () => sock, status: () => status, connectedAt: () => undefined } as never
   const media = { resolveOutgoing: async () => Buffer.from('x') } as never
   const history = {
     save: vi.fn(),
     get: vi.fn(() => ({ raw: { key: { id: 'M1' }, message: { conversation: 'hi' } } })),
+    hasInbound: () => true,
   } as never
-  return { sock, svc: new MessageService(sessions, history, media) }
+  const guard = { check: () => ({ ok: true }), record: vi.fn() } as never
+  return { sock, svc: new MessageService(sessions, history, media, guard) }
 }
 
 describe('MessageService', () => {
