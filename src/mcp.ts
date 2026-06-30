@@ -79,7 +79,7 @@ export function buildServer(cfg: McpConfig): McpServer {
   })
 
   const s = cfg.session
-  const server = new McpServer({ name: 'pigeon', version: '1.2.0' })
+  const server = new McpServer({ name: 'pigeon', version: '1.3.0' })
 
   const draftNote =
     ' DRAFT-ONLY MODE (WA_MCP_READONLY) is on: this does NOT send — it returns the composed draft for review.'
@@ -194,6 +194,31 @@ export function buildServer(cfg: McpConfig): McpServer {
         media.mimetype = mimetype
       }
       return asResult(await api('POST', `/v1/sessions/${s}/messages`, { chatId, type, caption, media }))
+    },
+  )
+
+  server.registerTool(
+    'delete_message',
+    {
+      description:
+        'Delete a message for everyone (revoke). Pass the chatId and the message id returned when it was sent. Only your own messages can be deleted for everyone, and WhatsApp limits how long after sending this works.' +
+        draftSuffix,
+      inputSchema: {
+        chatId: z.string().describe('Phone number or JID of the chat the message is in'),
+        msgId: z.string().describe('The message id to delete (as returned by send_message / send_media)'),
+        fromMe: z.boolean().optional().describe('Whether you sent the message (default true)'),
+      },
+    },
+    async ({ chatId, msgId, fromMe }) => {
+      if (cfg.readOnly) {
+        return asResult({
+          deleted: false,
+          mode: 'draft-only',
+          target: { chatId, msgId, fromMe: fromMe ?? true },
+          note: 'NOT DELETED. Pigeon is in draft-only mode (WA_MCP_READONLY).',
+        })
+      }
+      return asResult(await api('POST', `/v1/sessions/${s}/delete`, { chatId, msgId, fromMe: fromMe ?? true }))
     },
   )
 

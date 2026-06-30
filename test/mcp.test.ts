@@ -60,7 +60,9 @@ describe('pigeon mcp', () => {
     const { tools } = await client.listTools()
     expect(tools.map((t) => t.name).sort()).toEqual([
       'check_contact',
+      'delete_message',
       'list_chats',
+      'list_groups',
       'mark_read',
       'read_messages',
       'send_media',
