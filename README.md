@@ -138,7 +138,52 @@ Set `WA_MCP_READONLY=true` to run the MCP server in draft-only mode. `send_messa
 
 WhatsApp restricts accounts that message strangers in bursts, especially right after linking a new device. The send guard enforces sane limits on *cold* sends — first contact with a number that has never messaged you. Warm replies and group messages pass through untouched.
 
-A cold send is blocked when it lands inside the post-link cooldown (`WA_GUARD_POST_CONNECT_MS`), too soon after the previous cold send (`WA_GUARD_COLD_MIN_GAP_MS`), or over the hourly/daily caps (`WA_GUARD_COLD_PER_HOUR`, `WA_GUARD_COLD_PER_DAY`). The send fails with a reason explaining the limit. Set `WA_SEND_GUARD=off` to disable it, or pass `"force": true` on a single send to bypass it for a deliberate, vetted message.
+A cold send is blocked when it lands inside the post-link cooldown, too soon after the previous cold send, or over the hourly/daily caps. The send fails with a reason explaining which limit it hit. Warm replies (any number that has messaged you) and group/broadcast/newsletter sends are never gated.
+
+The limits and their defaults:
+
+| Setting | Default | What it does |
+| --- | --- | --- |
+| `WA_SEND_GUARD` | `on` | master switch; `off` disables all cold-send limits |
+| `WA_GUARD_POST_CONNECT_MS` | `120000` (2 min) | after the session links or relinks, cold sends are paused for this long |
+| `WA_GUARD_COLD_MIN_GAP_MS` | `60000` (1 min) | minimum gap between two cold sends |
+| `WA_GUARD_COLD_PER_HOUR` | `5` | max cold sends per rolling hour |
+| `WA_GUARD_COLD_PER_DAY` | `20` | max cold sends per rolling day |
+
+Two ways to override on a per-send basis:
+
+- Pass `"force": true` on a single send to bypass the guard for one deliberate, vetted message (works over the HTTP API and the MCP send tools).
+- Set `WA_SEND_GUARD=off` to turn the guard off entirely for the session.
+
+### Changing the limits
+
+All five settings are read from the environment (falling back to `.env` in the project root). Edit `.env`, then restart so the new values load:
+
+```bash
+# .env — example: loosen to 10/hour, 40/day, 30s between cold sends
+WA_GUARD_COLD_PER_HOUR=10
+WA_GUARD_COLD_PER_DAY=40
+WA_GUARD_COLD_MIN_GAP_MS=30000
+```
+
+```bash
+# Docker: recreate the container so it picks up the new .env values
+docker compose up -d
+
+# Local (npm): restart the process
+npm run build && npm start
+```
+
+To turn the guard off, or shorten the post-link cooldown to 30s:
+
+```bash
+# .env
+WA_SEND_GUARD=off
+# or keep it on but shorten the cooldown
+WA_GUARD_POST_CONNECT_MS=30000
+```
+
+The `docker-compose.yml` passes each guard variable through from `.env` with the defaults above, so anything you don't set keeps its default.
 
 ## Configuration
 

@@ -13,6 +13,11 @@ services:
       - WA_MEDIA_DIR=/app/media
       - WA_MEDIA_LIFETIME_DAYS=180
       - WA_LOG_LEVEL=info
+      - WA_SEND_GUARD=${WA_SEND_GUARD:-on}
+      - WA_GUARD_POST_CONNECT_MS=${WA_GUARD_POST_CONNECT_MS:-120000}
+      - WA_GUARD_COLD_MIN_GAP_MS=${WA_GUARD_COLD_MIN_GAP_MS:-60000}
+      - WA_GUARD_COLD_PER_HOUR=${WA_GUARD_COLD_PER_HOUR:-5}
+      - WA_GUARD_COLD_PER_DAY=${WA_GUARD_COLD_PER_DAY:-20}
     volumes:
       - ./data:/app/data
       - ./media:/app/media
