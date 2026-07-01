@@ -59,11 +59,14 @@ describe('pigeon mcp', () => {
   it('exposes the expected tools', async () => {
     const { tools } = await client.listTools()
     expect(tools.map((t) => t.name).sort()).toEqual([
+      'add_participants',
       'check_contact',
+      'create_group',
       'delete_message',
       'list_chats',
       'list_groups',
       'mark_read',
+      'read_contact',
       'read_messages',
       'send_media',
       'send_message',

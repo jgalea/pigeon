@@ -126,6 +126,10 @@ export async function registerV1(app: FastifyInstance, core: Core) {
     const p = req.params as { name: string; chatId: string }
     return core.wa.profilePicture(p.name, decodeURIComponent(p.chatId))
   })
+  app.get('/v1/sessions/:name/contacts/:chatId/jids', async (req) => {
+    const p = req.params as { name: string; chatId: string }
+    return core.wa.linkedJids(p.name, decodeURIComponent(p.chatId))
+  })
   app.post('/v1/sessions/:name/contacts/:chatId/block', async (req) => {
     const p = req.params as { name: string; chatId: string }
     const b = req.body as { blocked?: boolean }

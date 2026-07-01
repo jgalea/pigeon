@@ -37,6 +37,36 @@ export class WaService {
     const hit = res?.[0]
     return { numberExists: !!hit?.exists, chatId: hit?.jid }
   }
+  // Resolve every JID a person uses: their real number (@s.whatsapp.net) and
+  // any privacy-masked @lid, using Baileys' LID mapping store. WhatsApp can
+  // split one person's messages across both, so callers should read all of them.
+  async linkedJids(session: string, chatId: string): Promise<{ jids: string[] }> {
+    const jid = toJid(chatId)
+    const stripDevice = (j: string) => j.replace(/:\d+@/, '@')
+    const out = new Set<string>([stripDevice(jid)])
+    const sock = this.sock(session) as unknown as {
+      signalRepository?: {
+        lidMapping?: {
+          getLIDForPN?(pn: string): Promise<string | null>
+          getPNForLID?(lid: string): Promise<string | null>
+        }
+      }
+    }
+    const lidMapping = sock?.signalRepository?.lidMapping
+    try {
+      if (jid.endsWith('@lid')) {
+        const pn = await lidMapping?.getPNForLID?.(jid)
+        if (pn) out.add(stripDevice(pn))
+      } else {
+        const lid = await lidMapping?.getLIDForPN?.(jid)
+        if (lid) out.add(stripDevice(lid))
+      }
+    } catch {
+      // mapping unavailable (not synced yet) — just return what we have
+    }
+    return { jids: [...out] }
+  }
+
   async profilePicture(session: string, chatId: string) {
     try {
       const url = (await this.sock(session).profilePictureUrl(toJid(chatId) as never, 'image' as never)) as

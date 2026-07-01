@@ -113,7 +113,9 @@ Media takes `{data}` (base64) or `{url}` (Pigeon fetches it server-side). Chat i
 
 Pigeon ships an MCP (Model Context Protocol) server so AI tools like Claude Code can use WhatsApp directly. It runs over stdio and talks to a running Pigeon instance via the REST API.
 
-Tools: `session_status`, `list_chats`, `read_messages`, `send_message`, `send_media`, `mark_read`, `check_contact`.
+Tools: `session_status`, `list_chats`, `read_messages`, `read_contact`, `send_message`, `send_media`, `delete_message`, `mark_read`, `check_contact`, `list_groups`, `create_group`, `add_participants`.
+
+`read_contact` merges a person's messages across their real number and any privacy-masked `@lid` chat, since WhatsApp can split one contact across two chats. `create_group` and `add_participants` manage group membership.
 
 Register it with your MCP client, e.g. in a `.mcp.json`:
 

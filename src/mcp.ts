@@ -145,6 +145,56 @@ export function buildServer(cfg: McpConfig): McpServer {
   )
 
   server.registerTool(
+    'read_contact',
+    {
+      description:
+        "Read a person's WhatsApp messages MERGED across every JID they use — their real number (...@s.whatsapp.net) AND any privacy-masked ...@lid chat — sorted newest first. Prefer this over read_messages when checking a person by phone number: WhatsApp can split one person's messages across two separate chats, and read_messages only sees one. contact is a phone number (country code, no +) or a JID.",
+      inputSchema: {
+        contact: z.string().describe('Phone number (country code, no +) or JID of the person'),
+        limit: z
+          .number()
+          .int()
+          .positive()
+          .max(500)
+          .optional()
+          .describe('Max messages to return after merging (default 30)'),
+      },
+    },
+    async ({ contact, limit }) => {
+      const lim = limit ?? 30
+      const { jids } = (await api(
+        'GET',
+        `/v1/sessions/${s}/contacts/${encodeURIComponent(contact)}/jids`,
+      )) as { jids: string[] }
+      const batches = await Promise.all(
+        jids.map(async (jid) => {
+          try {
+            return (await api(
+              'GET',
+              `/v1/sessions/${s}/chats/${encodeURIComponent(jid)}/messages?limit=${lim}`,
+            )) as Array<Record<string, unknown>>
+          } catch {
+            return [] as Array<Record<string, unknown>>
+          }
+        }),
+      )
+      const seen = new Set<string>()
+      const messages = batches
+        .flat()
+        .filter((m) => {
+          const id = String(m.msgId ?? '')
+          if (id && seen.has(id)) return false
+          if (id) seen.add(id)
+          return true
+        })
+        .map(({ raw: _raw, session: _session, ...m }) => m)
+        .sort((a, b) => Number(b.timestamp ?? 0) - Number(a.timestamp ?? 0))
+        .slice(0, lim)
+      return asResult({ jids, messages })
+    },
+  )
+
+  server.registerTool(
     'send_message',
     {
       description:
@@ -242,6 +292,62 @@ export function buildServer(cfg: McpConfig): McpServer {
       },
     },
     async ({ phone }) => asResult(await api('GET', `/v1/sessions/${s}/contacts/check?phone=${encodeURIComponent(phone)}`)),
+  )
+
+  server.registerTool(
+    'create_group',
+    {
+      description:
+        'Create a new WhatsApp group with a subject (name) and initial participants, then returns the new group id (...@g.us). Participants are phone numbers with country code (no +) or full JIDs. You are added and made admin automatically; you do not need to list yourself. Note: people who are not in your contacts may need to accept before they see the group.' +
+        draftSuffix,
+      inputSchema: {
+        subject: z.string().min(1).describe('The group name/subject'),
+        participants: z
+          .array(z.string())
+          .min(1)
+          .describe('Phone numbers (country code, no +) or JIDs to add, excluding yourself'),
+      },
+    },
+    async ({ subject, participants }) => {
+      if (cfg.readOnly) {
+        return asResult({
+          created: false,
+          mode: 'draft-only',
+          draft: { subject, participants },
+          note: notSent,
+        })
+      }
+      return asResult(await api('POST', `/v1/sessions/${s}/groups`, { subject, participants }))
+    },
+  )
+
+  server.registerTool(
+    'add_participants',
+    {
+      description:
+        'Add one or more people to an existing WhatsApp group. groupId is the group JID (...@g.us). Participants are phone numbers with country code (no +) or full JIDs. Only group admins can add members.' +
+        draftSuffix,
+      inputSchema: {
+        groupId: z.string().describe('The group JID (...@g.us)'),
+        participants: z.array(z.string()).min(1).describe('Phone numbers (country code, no +) or JIDs to add'),
+      },
+    },
+    async ({ groupId, participants }) => {
+      if (cfg.readOnly) {
+        return asResult({
+          added: false,
+          mode: 'draft-only',
+          target: { groupId, participants, action: 'add' },
+          note: notSent,
+        })
+      }
+      return asResult(
+        await api('POST', `/v1/sessions/${s}/groups/${encodeURIComponent(groupId)}/participants`, {
+          participants,
+          action: 'add',
+        }),
+      )
+    },
   )
 
   return server
