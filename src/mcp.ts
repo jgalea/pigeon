@@ -1,7 +1,9 @@
 #!/usr/bin/env node
 
 import { readFileSync } from 'node:fs'
-import { basename, dirname, resolve } from 'node:path'
+import { mkdir, writeFile } from 'node:fs/promises'
+import { homedir } from 'node:os'
+import { basename, dirname, extname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
@@ -269,6 +271,38 @@ export function buildServer(cfg: McpConfig): McpServer {
         })
       }
       return asResult(await api('POST', `/v1/sessions/${s}/delete`, { chatId, msgId, fromMe: fromMe ?? true }))
+    },
+  )
+
+  server.registerTool(
+    'download_media',
+    {
+      description:
+        'Download the media attached to a stored message (document, image, video or audio) and save it to disk. Returns the saved path. Use read_messages first to get the msgId of the message carrying the attachment.',
+      inputSchema: {
+        chatId: z.string().describe('Phone number or JID of the chat the message is in'),
+        msgId: z.string().describe('The message id, as returned by read_messages'),
+        saveTo: z
+          .string()
+          .optional()
+          .describe('Directory to save into (default ~/Downloads), or a full file path to name the file yourself'),
+      },
+    },
+    async ({ chatId, msgId, saveTo }) => {
+      const res = await fetch(
+        `${cfg.url}/v1/sessions/${s}/chats/${encodeURIComponent(chatId)}/messages/${encodeURIComponent(msgId)}/media`,
+        { headers: { 'x-api-key': cfg.apiKey } },
+      )
+      if (!res.ok) throw new Error(`pigeon API ${res.status}: ${await res.text()}`)
+
+      const disposition = res.headers.get('content-disposition') ?? ''
+      const suggested = disposition.match(/filename="([^"]+)"/)?.[1] ?? `${msgId}.bin`
+      const target = saveTo ?? resolve(homedir(), 'Downloads')
+      const path = extname(target) ? target : resolve(target, basename(suggested))
+
+      await mkdir(dirname(path), { recursive: true })
+      await writeFile(path, Buffer.from(await res.arrayBuffer()))
+      return asResult({ path, mimetype: res.headers.get('content-type') })
     },
   )
 

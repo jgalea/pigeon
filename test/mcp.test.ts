@@ -63,6 +63,7 @@ describe('pigeon mcp', () => {
       'check_contact',
       'create_group',
       'delete_message',
+      'download_media',
       'list_chats',
       'list_groups',
       'mark_read',
