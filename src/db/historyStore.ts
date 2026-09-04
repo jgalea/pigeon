@@ -8,6 +8,7 @@ export class HistoryStore {
   private inboundStmt
   private oldestStmt
   private chatsStmt
+  private mediaPathStmt
 
   constructor(db: DB) {
     this.ins = db.prepare(`INSERT INTO messages(session,chat_id,msg_id,from_me,timestamp,type,body,caption,media_path,raw)
@@ -18,6 +19,9 @@ export class HistoryStore {
     this.one = db.prepare(`SELECT * FROM messages WHERE session=? AND chat_id=? AND msg_id=?`)
     this.inboundStmt = db.prepare(`SELECT 1 FROM messages WHERE session=? AND chat_id=? AND from_me=0 LIMIT 1`)
     this.oldestStmt = db.prepare(`SELECT * FROM messages WHERE session=? AND chat_id=? ORDER BY timestamp ASC LIMIT 1`)
+    this.mediaPathStmt = db.prepare(
+      `UPDATE messages SET media_path=? WHERE session=? AND chat_id=? AND msg_id=?`,
+    )
     this.chatsStmt = db.prepare(
       `SELECT chat_id, MAX(timestamp) AS ts, COUNT(*) AS n FROM messages WHERE session=? GROUP BY chat_id ORDER BY ts DESC LIMIT ?`,
     )
@@ -51,6 +55,10 @@ export class HistoryStore {
       mediaPath: m.mediaPath ?? null,
       raw: JSON.stringify(m.raw),
     })
+  }
+
+  setMediaPath(session: string, chatId: string, msgId: string, path: string) {
+    this.mediaPathStmt.run(path, session, chatId, msgId)
   }
 
   list(session: string, chatId: string, limit: number): NormalizedMessage[] {

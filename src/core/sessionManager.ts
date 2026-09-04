@@ -10,6 +10,7 @@ import type { DB } from '../db/database.js'
 import { useSqliteAuthState } from '../db/authStore.js'
 import { normalizeJid } from './jid.js'
 import type { HistoryStore } from '../db/historyStore.js'
+import { hasMedia, type MediaService } from './mediaService.js'
 import type { Logger } from '../logger.js'
 import type { SessionStatus, NormalizedMessage } from './types.js'
 
@@ -78,6 +79,7 @@ export class SessionManager extends EventEmitter {
     private history: HistoryStore,
     private logger: Logger,
     private factory: AuthFactory = realMakeSocket,
+    private media?: MediaService,
   ) {
     super()
     db.prepare('INSERT OR IGNORE INTO sessions(name,created_at) VALUES(?,?)').run('default', Date.now())
@@ -152,6 +154,7 @@ export class SessionManager extends EventEmitter {
         const n = this.normalize(name, msg as Record<string, never>)
         if (!n) continue
         this.history.save(n)
+        this.fetchMedia(name, n, msg, sock)
         this.emit('message', n)
         this.emit('event', { session: name, event: 'message', payload: msg, timestamp: Date.now() })
       }
@@ -179,6 +182,18 @@ export class SessionManager extends EventEmitter {
     sock.ev.on('presence.update', relay('presence.update'))
     sock.ev.on('group-participants.update', relay('group.participants'))
     sock.ev.on('groups.update', relay('group.update'))
+  }
+
+  // Pull media to disk as soon as the message lands. Off the critical path:
+  // a failure here must never stop the message being stored or relayed.
+  private fetchMedia(session: string, n: NormalizedMessage, raw: unknown, sock: WASocket) {
+    if (!this.media || !hasMedia(raw)) return
+    void this.media
+      .saveIncoming(raw, (sock as { updateMediaMessage?: unknown }).updateMediaMessage)
+      .then((path) => {
+        if (path) this.history.setMediaPath(session, n.chatId, n.msgId, path)
+      })
+      .catch((e) => this.logger.warn({ e, msgId: n.msgId }, 'inbound media fetch failed'))
   }
 
   private normalize(session: string, msg: Record<string, never>): NormalizedMessage | undefined {

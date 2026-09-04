@@ -1,5 +1,7 @@
 import type { FastifyInstance } from 'fastify'
 import { downloadMediaMessage } from '@whiskeysockets/baileys'
+import { existsSync, readFileSync } from 'node:fs'
+import { basename } from 'node:path'
 import type { Core } from './server.js'
 import type { OutgoingMessage, PresenceType } from '../core/types.js'
 import { normalizeJid } from '../core/jid.js'
@@ -62,6 +64,18 @@ export async function registerV1(app: FastifyInstance, core: Core) {
         content.videoMessage ??
         content.audioMessage) as { fileName?: string; mimetype?: string } | undefined
     if (!docLike) return reply.code(415).send({ error: 'message has no downloadable media' })
+    // Prefer the copy taken when the message arrived. WhatsApp purges media
+    // after a few weeks and then answers 410 for a still-valid signed URL, so
+    // the local file is the only thing that survives.
+    if (msg.mediaPath && existsSync(msg.mediaPath)) {
+      const local = readFileSync(msg.mediaPath)
+      reply.header('Content-Type', docLike.mimetype ?? 'application/octet-stream')
+      reply.header(
+        'Content-Disposition',
+        `attachment; filename="${(docLike.fileName ?? basename(msg.mediaPath)).replace(/"/g, '')}"`,
+      )
+      return reply.send(local)
+    }
     const buffer = (await downloadMediaMessage(
       msg.raw as Parameters<typeof downloadMediaMessage>[0],
       'buffer',

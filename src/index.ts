@@ -16,7 +16,13 @@ const db = openDb(config.dataDir)
 
 const history = new HistoryStore(db)
 const media = new MediaService(config.mediaDir, config.mediaLifetimeDays, logger)
-const sessions = new SessionManager(db, history, logger)
+const sessions = new SessionManager(
+  db,
+  history,
+  logger,
+  undefined,
+  config.mediaAutoDownload ? media : undefined,
+)
 const guard = new SendGuard(config.guard)
 const messages = new MessageService(sessions, history, media, guard)
 const wa = new WaService(sessions, media)

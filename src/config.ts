@@ -15,6 +15,7 @@ export interface Config {
   dataDir: string
   mediaDir: string
   mediaLifetimeDays: number
+  mediaAutoDownload: boolean
   logLevel: string
   webhookSecret?: string
   guard: SendGuardConfig
@@ -30,6 +31,7 @@ export function loadConfig(env = process.env): Config {
     dataDir: resolve(env.WA_DATA_DIR ?? './data'),
     mediaDir: resolve(env.WA_MEDIA_DIR ?? './media'),
     mediaLifetimeDays: Number(env.WA_MEDIA_LIFETIME_DAYS ?? 180),
+    mediaAutoDownload: (env.WA_MEDIA_AUTODOWNLOAD ?? 'on') !== 'off',
     logLevel: env.WA_LOG_LEVEL ?? 'info',
     webhookSecret: env.WA_WEBHOOK_SECRET || undefined,
     guard: {

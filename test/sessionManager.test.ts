@@ -22,11 +22,17 @@ function fakeSocket() {
   return sock
 }
 
-function newManager() {
+function newManager(media?: unknown) {
   const db = openDb(mkdtempSync(join(tmpdir(), 'wa-')))
   const hs = new HistoryStore(db)
   const sock = fakeSocket()
-  const mgr = new SessionManager(db, hs, makeLogger('silent'), async () => sock as never)
+  const mgr = new SessionManager(
+    db,
+    hs,
+    makeLogger('silent'),
+    async () => sock as never,
+    media as never,
+  )
   return { mgr, sock, hs }
 }
 
@@ -40,6 +46,79 @@ describe('SessionManager', () => {
     sock.emit('connection.update', { connection: 'open' })
     expect(mgr.status('default')).toBe('WORKING')
     expect(mgr.getQr('default')).toBeUndefined()
+  })
+
+  it('fetches inbound media on arrival and records the path', async () => {
+    const calls: unknown[] = []
+    const media = {
+      saveIncoming: async (msg: unknown) => {
+        calls.push(msg)
+        return '/media/abc.ogg'
+      },
+    }
+    const { mgr, sock, hs } = newManager(media)
+    await mgr.start('default')
+    sock.emit('messages.upsert', {
+      type: 'notify',
+      messages: [
+        {
+          key: { remoteJid: 'a@s.whatsapp.net', id: 'V1', fromMe: false },
+          messageTimestamp: 123,
+          message: { audioMessage: { mimetype: 'audio/ogg; codecs=opus', ptt: true } },
+        },
+      ],
+    })
+    await new Promise((r) => setTimeout(r, 0))
+    expect(calls).toHaveLength(1)
+    expect(hs.get('default', 'a@s.whatsapp.net', 'V1')?.mediaPath).toBe('/media/abc.ogg')
+  })
+
+  it('leaves text messages alone', async () => {
+    const calls: unknown[] = []
+    const media = {
+      saveIncoming: async (msg: unknown) => {
+        calls.push(msg)
+        return '/media/nope.bin'
+      },
+    }
+    const { mgr, sock } = newManager(media)
+    await mgr.start('default')
+    sock.emit('messages.upsert', {
+      type: 'notify',
+      messages: [
+        {
+          key: { remoteJid: 'a@s.whatsapp.net', id: 'T1', fromMe: false },
+          messageTimestamp: 123,
+          message: { conversation: 'hi' },
+        },
+      ],
+    })
+    await new Promise((r) => setTimeout(r, 0))
+    expect(calls).toHaveLength(0)
+  })
+
+  it('stores the message even when the media fetch throws', async () => {
+    const media = {
+      saveIncoming: async () => {
+        throw new Error('410 Gone')
+      },
+    }
+    const { mgr, sock, hs } = newManager(media)
+    await mgr.start('default')
+    sock.emit('messages.upsert', {
+      type: 'notify',
+      messages: [
+        {
+          key: { remoteJid: 'a@s.whatsapp.net', id: 'V2', fromMe: false },
+          messageTimestamp: 123,
+          message: { audioMessage: { mimetype: 'audio/ogg' } },
+        },
+      ],
+    })
+    await new Promise((r) => setTimeout(r, 0))
+    const stored = hs.get('default', 'a@s.whatsapp.net', 'V2')
+    expect(stored).toBeDefined()
+    expect(stored?.mediaPath).toBeUndefined()
   })
 
   it('persists incoming messages to history', async () => {

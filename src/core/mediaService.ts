@@ -24,15 +24,22 @@ export class MediaService {
     throw new Error('media requires data or url')
   }
 
-  async saveIncoming(msg: unknown): Promise<string | undefined> {
+  // WhatsApp deletes undownloaded media from its servers after a few weeks, and
+  // then returns 410 Gone for a URL that still looks validly signed. Anything we
+  // have not pulled by then is unrecoverable, so inbound media is fetched on
+  // arrival rather than on demand.
+  async saveIncoming(msg: unknown, reupload?: unknown): Promise<string | undefined> {
     try {
       const buf = await downloadMediaMessage(
         msg as never,
         'buffer',
         {},
-        { logger: this.logger as never, reuploadRequest: (async () => msg) as never },
+        {
+          logger: this.logger as never,
+          reuploadRequest: (reupload ?? (async () => msg)) as never,
+        },
       )
-      const path = join(this.mediaDir, `${randomUUID()}.bin`)
+      const path = join(this.mediaDir, `${randomUUID()}${extensionFor(msg)}`)
       writeFileSync(path, buf as Buffer)
       return path
     } catch (e) {
@@ -52,4 +59,49 @@ export class MediaService {
       }
     }
   }
+}
+
+// Media carriers Baileys can decrypt. Voice notes arrive as audioMessage with
+// ptt set; ptvMessage is the round video note.
+export const MEDIA_TYPES = new Set([
+  'imageMessage',
+  'videoMessage',
+  'audioMessage',
+  'documentMessage',
+  'stickerMessage',
+  'ptvMessage',
+])
+
+export function hasMedia(msg: unknown): boolean {
+  const content = (msg as { message?: Record<string, unknown> })?.message ?? {}
+  return Object.keys(content).some((k) => MEDIA_TYPES.has(k))
+}
+
+const EXT_BY_MIME: Record<string, string> = {
+  'audio/ogg': '.ogg',
+  'audio/mpeg': '.mp3',
+  'audio/mp4': '.m4a',
+  'audio/aac': '.aac',
+  'audio/wav': '.wav',
+  'image/jpeg': '.jpg',
+  'image/png': '.png',
+  'image/webp': '.webp',
+  'video/mp4': '.mp4',
+  'video/quicktime': '.mov',
+  'application/pdf': '.pdf',
+}
+
+// Name the file by its real type so ffmpeg and whisper can read it without
+// being told what it is. A bare .bin makes every downstream tool guess.
+function extensionFor(msg: unknown): string {
+  const content = (msg as { message?: Record<string, unknown> })?.message ?? {}
+  for (const k of Object.keys(content)) {
+    if (!MEDIA_TYPES.has(k)) continue
+    const m = content[k] as { mimetype?: string; fileName?: string } | undefined
+    const name = m?.fileName
+    if (name && name.includes('.')) return name.slice(name.lastIndexOf('.'))
+    const mime = (m?.mimetype ?? '').split(';')[0].trim().toLowerCase()
+    if (EXT_BY_MIME[mime]) return EXT_BY_MIME[mime]
+  }
+  return '.bin'
 }
