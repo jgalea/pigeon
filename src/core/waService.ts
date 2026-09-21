@@ -188,8 +188,14 @@ export class WaService {
   }
 
   // --- pairing code (alternative to QR) ---
+  // Not via sock(): that requires WORKING, but a pairing code is only ever
+  // wanted while the session is still SCAN_QR_CODE, which made this
+  // unreachable. Needs the socket to exist, not the session to be authed.
   async requestPairingCode(session: string, phone: string) {
-    const code = (await this.sock(session).requestPairingCode(phone.replace(/[^0-9]/g, '') as never)) as string
+    const s = this.sessions.socket(session)
+    if (!s) throw new Error(`session ${session} has no socket`)
+    const sock = s as unknown as Record<string, (...args: never[]) => Promise<unknown>>
+    const code = (await sock.requestPairingCode(phone.replace(/[^0-9]/g, '') as never)) as string
     return { code }
   }
 }
