@@ -191,11 +191,20 @@ export class WaService {
   // Not via sock(): that requires WORKING, but a pairing code is only ever
   // wanted while the session is still SCAN_QR_CODE, which made this
   // unreachable. Needs the socket to exist, not the session to be authed.
+  //
+  // Records the phone on the session first, so that if the socket churns
+  // before the human finishes typing, the reconnect mints a fresh code
+  // instead of leaving them holding one that silently stopped working.
+  // Calling this again returns the current code rather than a new one.
   async requestPairingCode(session: string, phone: string) {
     const s = this.sessions.socket(session)
     if (!s) throw new Error(`session ${session} has no socket`)
+    this.sessions.setPairingPhone(session, phone)
+    const existing = this.sessions.pairingCode(session)
+    if (existing) return { code: existing, reused: true }
     const sock = s as unknown as Record<string, (...args: never[]) => Promise<unknown>>
     const code = (await sock.requestPairingCode(phone.replace(/[^0-9]/g, '') as never)) as string
-    return { code }
+    this.sessions.setPairingCode(session, code)
+    return { code, reused: false }
   }
 }

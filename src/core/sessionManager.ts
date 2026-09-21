@@ -32,6 +32,12 @@ interface Entry {
   sock?: WASocket
   status: SessionStatus
   qr?: string
+  // Set once a pairing code has been asked for. Kept on the entry so that a
+  // reconnect can mint a fresh code by itself: every new socket carries new
+  // pairing keys, which silently invalidates any code issued against the old
+  // one, and the person holding that code has no way to tell.
+  pairingPhone?: string
+  pairingCode?: string
   saveCreds?: () => Promise<void>
   connectedAt?: number
 }
@@ -106,6 +112,20 @@ export class SessionManager extends EventEmitter {
   getQr(name: string): string | undefined {
     return this.entries.get(name)?.qr
   }
+
+  pairingCode(name: string): string | undefined {
+    return this.entries.get(name)?.pairingCode
+  }
+
+  setPairingPhone(name: string, phone: string): void {
+    const e = this.entries.get(name)
+    if (e) e.pairingPhone = phone
+  }
+
+  setPairingCode(name: string, code: string): void {
+    const e = this.entries.get(name)
+    if (e) e.pairingCode = code
+  }
   socket(name: string): WASocket | undefined {
     return this.entries.get(name)?.sock
   }
@@ -127,6 +147,21 @@ export class SessionManager extends EventEmitter {
 
     sock.ev.on('creds.update', saveCreds)
 
+    // A pending pairing survives socket churn: re-request against the socket
+    // that actually exists now, so the stored code is never stale.
+    if (entry.pairingPhone && !(state as { creds?: { registered?: boolean } })?.creds?.registered) {
+      entry.pairingCode = undefined
+      void (async () => {
+        try {
+          const s = sock as unknown as { requestPairingCode: (p: string) => Promise<string> }
+          entry.pairingCode = await s.requestPairingCode(entry.pairingPhone!.replace(/[^0-9]/g, ''))
+          this.logger.info({ name }, 'pairing code refreshed for new socket')
+        } catch (e) {
+          this.logger.error({ e, name }, 'pairing code request failed')
+        }
+      })()
+    }
+
     sock.ev.on('connection.update', (u: { connection?: string; qr?: string; lastDisconnect?: { error?: unknown } }) => {
       if (u.qr) {
         entry.qr = u.qr
@@ -134,6 +169,8 @@ export class SessionManager extends EventEmitter {
       }
       if (u.connection === 'open') {
         entry.qr = undefined
+        entry.pairingPhone = undefined
+        entry.pairingCode = undefined
         this.setStatus(name, 'WORKING')
       }
       if (u.connection === 'close') {
