@@ -211,6 +211,23 @@ export async function registerV1(app: FastifyInstance, core: Core) {
     const b = req.body as { setting: 'announcement' | 'not_announcement' | 'locked' | 'unlocked' }
     return core.wa.groupSetting(p.name, decodeURIComponent(p.groupId), b.setting)
   })
+  app.put('/v1/sessions/:name/groups/:groupId/picture', async (req) => {
+    const p = req.params as { name: string; groupId: string }
+    return core.wa.setProfilePicture(p.name, decodeURIComponent(p.groupId), req.body as { data?: string; url?: string })
+  })
+  app.put('/v1/sessions/:name/groups/:groupId/join-approval', async (req) => {
+    const p = req.params as { name: string; groupId: string }
+    return core.wa.groupJoinApproval(p.name, decodeURIComponent(p.groupId), (req.body as { mode: 'on' | 'off' }).mode)
+  })
+  app.get('/v1/sessions/:name/groups/:groupId/requests', async (req) => {
+    const p = req.params as { name: string; groupId: string }
+    return core.wa.groupRequests(p.name, decodeURIComponent(p.groupId))
+  })
+  app.post('/v1/sessions/:name/groups/:groupId/requests', async (req) => {
+    const p = req.params as { name: string; groupId: string }
+    const b = req.body as { participants: string[]; action: 'approve' | 'reject' }
+    return core.wa.groupRequestsUpdate(p.name, decodeURIComponent(p.groupId), b.participants, b.action)
+  })
 
   // --- status / stories ---
   app.post('/v1/sessions/:name/status', async (req) => {

@@ -143,6 +143,20 @@ export class WaService {
     await this.sock(session).groupSettingUpdate(groupId as never, setting as never)
     return { success: true }
   }
+  async groupJoinApproval(session: string, groupId: string, mode: 'on' | 'off') {
+    await this.sock(session).groupJoinApprovalMode(groupId as never, mode as never)
+    return { success: true }
+  }
+  async groupRequests(session: string, groupId: string) {
+    return this.sock(session).groupRequestParticipantsList(groupId as never)
+  }
+  async groupRequestsUpdate(session: string, groupId: string, participants: string[], action: 'approve' | 'reject') {
+    return this.sock(session).groupRequestParticipantsUpdate(
+      groupId as never,
+      participants.map(toJid) as never,
+      action as never,
+    )
+  }
   async groupsList(session: string) {
     const groups = (await this.sock(session).groupFetchAllParticipating()) as Record<
       string,
