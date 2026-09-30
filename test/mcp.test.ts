@@ -6,6 +6,7 @@ import { buildServer, loadMcpConfig } from '../src/mcp.js'
 
 const sent: unknown[] = []
 const seen: unknown[] = []
+const messageQueries: Record<string, string>[] = []
 
 function stubApi(): FastifyInstance {
   const app = Fastify()
@@ -14,9 +15,28 @@ function stubApi(): FastifyInstance {
   })
   app.get('/v1/sessions/default', async () => ({ name: 'default', status: 'WORKING' }))
   app.get('/v1/sessions/default/chats', async () => [{ chatId: 'a@s.whatsapp.net', lastTimestamp: 1, count: 2 }])
-  app.get('/v1/sessions/default/chats/:chatId/messages', async () => [
-    { session: 'default', chatId: 'a@s.whatsapp.net', msgId: '1', fromMe: false, timestamp: 1, type: 'text', body: 'hi', raw: { big: 'blob' } },
+  app.get('/v1/sessions/default/chats/:chatId/messages', async (req) => {
+    messageQueries.push(req.query as Record<string, string>)
+    return [
+      { session: 'default', chatId: 'a@s.whatsapp.net', msgId: '1', fromMe: false, timestamp: 1, type: 'text', body: 'hi', raw: { big: 'blob' } },
+    ]
+  })
+  app.get('/v1/sessions/default/communities', async () => [
+    { id: 'c@g.us', name: 'Town', description: 'Local community', isCommunity: true },
   ])
+  app.get('/v1/sessions/default/communities/:communityId/groups', async (req) => ({
+    communityId: decodeURIComponent((req.params as { communityId: string }).communityId),
+    name: 'Town',
+    groups: [{ id: 'sub@g.us', name: 'Services', isMember: false }],
+  }))
+  app.get('/v1/sessions/default/groups/:groupId', async () => ({
+    id: 'g@g.us',
+    subject: 'Traders',
+    desc: 'No ads.\n',
+    announce: true,
+    linkedParent: 'c@g.us',
+    participants: [{ id: '1@lid', phoneNumber: '34600000001@s.whatsapp.net', admin: 'superadmin' }, { id: '2@lid', admin: null }],
+  }))
   app.post('/v1/sessions/default/messages', async (req) => {
     sent.push(req.body)
     return { id: 'OUT1' }
@@ -64,7 +84,10 @@ describe('pigeon mcp', () => {
       'create_group',
       'delete_message',
       'download_media',
+      'group_info',
       'list_chats',
+      'list_communities',
+      'list_community_groups',
       'list_groups',
       'mark_read',
       'read_contact',
@@ -90,6 +113,37 @@ describe('pigeon mcp', () => {
     const msgs = JSON.parse(textOf(r))
     expect(msgs[0].body).toBe('hi')
     expect(msgs[0].raw).toBeUndefined()
+  })
+
+  it('skips system events unless asked to include them', async () => {
+    await client.callTool({ name: 'read_messages', arguments: { chatId: 'a@s.whatsapp.net' } })
+    expect(messageQueries.at(-1)?.includeSystem).toBe('false')
+    await client.callTool({ name: 'read_messages', arguments: { chatId: 'a@s.whatsapp.net', includeSystem: true } })
+    expect(messageQueries.at(-1)?.includeSystem).toBe('true')
+  })
+
+  it('lists communities and their groups', async () => {
+    const c = await client.callTool({ name: 'list_communities', arguments: {} })
+    expect(JSON.parse(textOf(c))[0]).toMatchObject({ id: 'c@g.us', name: 'Town' })
+    const g = await client.callTool({ name: 'list_community_groups', arguments: { communityId: 'c@g.us' } })
+    const out = JSON.parse(textOf(g))
+    expect(out.communityId).toBe('c@g.us')
+    expect(out.groups[0]).toMatchObject({ id: 'sub@g.us', isMember: false })
+  })
+
+  it('summarises group metadata', async () => {
+    const r = await client.callTool({ name: 'group_info', arguments: { groupId: 'g@g.us' } })
+    const out = JSON.parse(textOf(r))
+    expect(out).toMatchObject({
+      id: 'g@g.us',
+      name: 'Traders',
+      description: 'No ads.',
+      adminsOnlyPosting: true,
+      communityId: 'c@g.us',
+      admins: ['34600000001@s.whatsapp.net'],
+      memberCount: 2,
+    })
+    expect(out.participants).toBeUndefined()
   })
 
   it('sends a text message', async () => {

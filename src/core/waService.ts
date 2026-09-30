@@ -2,9 +2,40 @@ import type { SessionManager } from './sessionManager.js'
 import type { MediaService } from './mediaService.js'
 import type { PresenceType } from './types.js'
 import { normalizeJid as toJid } from './jid.js'
+import { summarizeGroup, type GroupSummary } from './groups.js'
 
 type ParticipantAction = 'add' | 'remove' | 'promote' | 'demote'
 type GroupSetting = 'announcement' | 'not_announcement' | 'locked' | 'unlocked'
+
+interface RawGroup {
+  id: string
+  subject?: string
+  desc?: string
+  isCommunity?: boolean
+  isCommunityAnnounce?: boolean
+  announce?: boolean
+  size?: number
+  creation?: number
+}
+
+export interface CommunityGroup {
+  id: string
+  name: string
+  description: string | null
+  isMember: boolean
+  isAnnounce: boolean
+  adminsOnlyPosting: boolean
+  memberCount: number | null
+  createdAt: number | null
+}
+
+export interface CommunityGroups {
+  communityId: string
+  name: string
+  description: string | null
+  isMember: boolean
+  groups: CommunityGroup[]
+}
 
 export class WaService {
   constructor(
@@ -163,6 +194,68 @@ export class WaService {
       { id: string; subject: string }
     >
     return Object.values(groups).map((g) => ({ id: g.id, name: g.subject }))
+  }
+
+  // --- communities (read-only) ---
+  // Communities you belong to. The parent shows up in the participating list
+  // flagged isCommunity; the community-specific query is merged in as a
+  // fallback since it has been less exercised in Baileys.
+  async communitiesList(session: string): Promise<GroupSummary[]> {
+    const sock = this.sock(session)
+    const all = (await sock.groupFetchAllParticipating()) as Record<string, RawGroup>
+    const found = new Map<string, RawGroup>()
+    for (const g of Object.values(all)) if (g.isCommunity) found.set(g.id, g)
+    try {
+      const extra = (await sock.communityFetchAllParticipating()) as Record<string, RawGroup>
+      for (const g of Object.values(extra)) if (!found.has(g.id)) found.set(g.id, g)
+    } catch {
+      // participating-groups query already answered; the community query is optional
+    }
+    return [...found.values()].map(summarizeGroup)
+  }
+
+  // Every group linked to a community, including ones you haven't joined.
+  // Accepts the community id or any of its subgroups. Description is only
+  // available where WhatsApp lets us read the group's metadata (member groups
+  // and open subgroups); otherwise it is null.
+  async communityGroups(session: string, jid: string): Promise<CommunityGroups> {
+    const sock = this.sock(session)
+    const linked = (await sock.communityFetchLinkedGroups(jid as never)) as {
+      communityJid: string
+      linkedGroups: Array<{ id?: string; subject: string; creation?: number; size?: number }>
+    }
+    const mine = (await sock.groupFetchAllParticipating()) as Record<string, RawGroup>
+    const metaFor = async (id: string): Promise<RawGroup | undefined> => {
+      if (mine[id]) return mine[id]
+      try {
+        return (await sock.groupMetadata(id as never)) as RawGroup
+      } catch {
+        return undefined
+      }
+    }
+    const parent = await metaFor(linked.communityJid)
+    const groups: CommunityGroup[] = []
+    for (const g of linked.linkedGroups) {
+      if (!g.id) continue
+      const meta = await metaFor(g.id)
+      groups.push({
+        id: g.id,
+        name: g.subject || meta?.subject || '',
+        description: meta?.desc?.trim() || null,
+        isMember: g.id in mine,
+        isAnnounce: !!meta?.isCommunityAnnounce,
+        adminsOnlyPosting: !!meta?.announce,
+        memberCount: g.size ?? meta?.size ?? null,
+        createdAt: g.creation ?? meta?.creation ?? null,
+      })
+    }
+    return {
+      communityId: linked.communityJid,
+      name: parent?.subject ?? '',
+      description: parent?.desc?.trim() || null,
+      isMember: linked.communityJid in mine,
+      groups,
+    }
   }
 
   // --- status / stories ---

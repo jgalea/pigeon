@@ -1,9 +1,11 @@
 import type { DB } from './database.js'
 import type { NormalizedMessage } from '../core/types.js'
+import { isSystem, presentMessage } from '../core/systemEvents.js'
 
 export class HistoryStore {
   private ins
   private sel
+  private selPage
   private one
   private inboundStmt
   private oldestStmt
@@ -16,6 +18,9 @@ export class HistoryStore {
       ON CONFLICT(session,chat_id,msg_id) DO UPDATE SET
         body=excluded.body, caption=excluded.caption, media_path=excluded.media_path, raw=excluded.raw, timestamp=excluded.timestamp`)
     this.sel = db.prepare(`SELECT * FROM messages WHERE session=? AND chat_id=? ORDER BY timestamp DESC LIMIT ?`)
+    this.selPage = db.prepare(
+      `SELECT * FROM messages WHERE session=? AND chat_id=? ORDER BY timestamp DESC LIMIT ? OFFSET ?`,
+    )
     this.one = db.prepare(`SELECT * FROM messages WHERE session=? AND chat_id=? AND msg_id=?`)
     this.inboundStmt = db.prepare(`SELECT 1 FROM messages WHERE session=? AND chat_id=? AND from_me=0 LIMIT 1`)
     this.oldestStmt = db.prepare(`SELECT * FROM messages WHERE session=? AND chat_id=? ORDER BY timestamp ASC LIMIT 1`)
@@ -27,8 +32,11 @@ export class HistoryStore {
     )
   }
 
+  // Rows stored before system-event classification existed still carry
+  // type 'unknown' or a wrapper name; presentMessage re-derives from raw so
+  // the whole history reads consistently without rewriting the table.
   private toMessage(r: Record<string, unknown>): NormalizedMessage {
-    return {
+    return presentMessage({
       session: r.session as string,
       chatId: r.chat_id as string,
       msgId: r.msg_id as string,
@@ -39,7 +47,7 @@ export class HistoryStore {
       caption: (r.caption as string) ?? undefined,
       mediaPath: (r.media_path as string) ?? undefined,
       raw: JSON.parse(r.raw as string),
-    }
+    })
   }
 
   save(m: NormalizedMessage) {
@@ -61,9 +69,25 @@ export class HistoryStore {
     this.mediaPathStmt.run(path, session, chatId, msgId)
   }
 
-  list(session: string, chatId: string, limit: number): NormalizedMessage[] {
-    const rows = this.sel.all(session, chatId, limit) as Array<Record<string, unknown>>
-    return rows.map((r) => this.toMessage(r))
+  list(session: string, chatId: string, limit: number, opts: { includeSystem?: boolean } = {}): NormalizedMessage[] {
+    if (opts.includeSystem !== false) {
+      const rows = this.sel.all(session, chatId, limit) as Array<Record<string, unknown>>
+      return rows.map((r) => this.toMessage(r))
+    }
+    // System events can only be told apart after reading raw, so page through
+    // the chat until enough real messages have been collected.
+    const out: NormalizedMessage[] = []
+    const page = Math.max(limit * 2, 50)
+    for (let offset = 0; out.length < limit; offset += page) {
+      const rows = this.selPage.all(session, chatId, page, offset) as Array<Record<string, unknown>>
+      for (const r of rows) {
+        const m = this.toMessage(r)
+        if (!isSystem(m)) out.push(m)
+        if (out.length >= limit) break
+      }
+      if (rows.length < page) break
+    }
+    return out
   }
 
   get(session: string, chatId: string, msgId: string): NormalizedMessage | undefined {

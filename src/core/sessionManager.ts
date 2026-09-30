@@ -13,6 +13,7 @@ import type { HistoryStore } from '../db/historyStore.js'
 import { hasMedia, type MediaService } from './mediaService.js'
 import type { Logger } from '../logger.js'
 import type { SessionStatus, NormalizedMessage } from './types.js'
+import { contentType, describeSystemEvent, SYSTEM_TYPE } from './systemEvents.js'
 
 export type AuthFactory = (auth: unknown, logger: Logger) => Promise<WASocket>
 
@@ -248,8 +249,10 @@ export class SessionManager extends EventEmitter {
         ? key.remoteJidAlt
         : rawJid
     const content = (msg as { message?: Record<string, unknown> }).message ?? {}
-    const type = Object.keys(content)[0] ?? 'unknown'
+    const system = describeSystemEvent(msg)
+    const type = system !== undefined ? SYSTEM_TYPE : contentType(content)
     const body =
+      system ??
       (content.conversation as string) ??
       ((content.extendedTextMessage as { text?: string })?.text) ??
       contactBody(content)

@@ -86,13 +86,15 @@ Every route except `/api/health` requires `X-Api-Key: <WA_API_KEY>`. There are t
 | POST | `/v1/sessions/:name/forward` | `{toChatId, fromChatId, msgId}` |
 | POST | `/v1/sessions/:name/presence` | `{type, chatId?}` |
 | GET | `/v1/sessions/:name/chats` | recent chats |
-| GET | `/v1/sessions/:name/chats/:chatId/messages?limit=` | history |
+| GET | `/v1/sessions/:name/chats/:chatId/messages?limit=&includeSystem=` | history; system events (joins, leaves, deletions) have type `system` and a short body, pass `includeSystem=false` to drop them |
 | GET | `/v1/sessions/:name/contacts/check?phone=` | is on WhatsApp |
 | GET | `/v1/sessions/:name/contacts/:chatId/picture` | profile picture url |
 | POST | `/v1/sessions/:name/contacts/:chatId/block` | `{blocked}` |
 | PUT | `/v1/sessions/:name/profile/name\|status` | `{name}` / `{status}` |
 | POST/GET | `/v1/sessions/:name/groups` | create `{subject, participants}` / list |
 | GET | `/v1/sessions/:name/groups/:groupId` | metadata |
+| GET | `/v1/sessions/:name/communities` | communities you belong to |
+| GET | `/v1/sessions/:name/communities/:communityId/groups` | a community's linked groups, joined or not, with membership and description |
 | POST | `/v1/sessions/:name/groups/:groupId/participants` | `{participants, action}` |
 | PUT | `/v1/sessions/:name/groups/:groupId/subject\|description` | update |
 | GET/POST | `/v1/sessions/:name/groups/:groupId/invite` | get / `invite/revoke` |
@@ -113,9 +115,9 @@ Media takes `{data}` (base64) or `{url}` (Pigeon fetches it server-side). Chat i
 
 Pigeon ships an MCP (Model Context Protocol) server so AI tools like Claude Code can use WhatsApp directly. It runs over stdio and talks to a running Pigeon instance via the REST API.
 
-Tools: `session_status`, `list_chats`, `read_messages`, `read_contact`, `send_message`, `send_media`, `delete_message`, `mark_read`, `check_contact`, `list_groups`, `create_group`, `add_participants`.
+Tools: `session_status`, `list_chats`, `read_messages`, `read_contact`, `send_message`, `send_media`, `delete_message`, `mark_read`, `check_contact`, `list_groups`, `group_info`, `list_communities`, `list_community_groups`, `create_group`, `add_participants`.
 
-`read_contact` merges a person's messages across their real number and any privacy-masked `@lid` chat, since WhatsApp can split one contact across two chats. `create_group` and `add_participants` manage group membership.
+`read_contact` merges a person's messages across their real number and any privacy-masked `@lid` chat, since WhatsApp can split one contact across two chats. `create_group` and `add_participants` manage group membership. `group_info`, `list_communities` and `list_community_groups` are read-only: they return a group's description and posting rules, and a community's subgroups whether or not you have joined them. `read_messages` and `read_contact` skip system events (member joins and leaves, deletions, setting changes) unless `includeSystem` is true.
 
 Register it with your MCP client, e.g. in a `.mcp.json`:
 

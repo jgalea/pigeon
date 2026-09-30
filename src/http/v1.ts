@@ -46,8 +46,13 @@ export async function registerV1(app: FastifyInstance, core: Core) {
 
   app.get('/v1/sessions/:name/chats/:chatId/messages', async (req) => {
     const p = req.params as { name: string; chatId: string }
-    const q = req.query as { limit?: string }
-    return core.history.list(p.name, normalizeJid(decodeURIComponent(p.chatId)), Number(q.limit ?? 100))
+    const q = req.query as { limit?: string; includeSystem?: string }
+    // System events (joins, leaves, deletes, settings changes) are included
+    // unless includeSystem=false; they read as type "system" with a short body.
+    const includeSystem = !['false', '0', 'no'].includes((q.includeSystem ?? '').toLowerCase())
+    return core.history.list(p.name, normalizeJid(decodeURIComponent(p.chatId)), Number(q.limit ?? 100), {
+      includeSystem,
+    })
   })
 
   // Download (decrypt) inbound media for a stored message. Returns the raw bytes.
@@ -173,6 +178,16 @@ export async function registerV1(app: FastifyInstance, core: Core) {
     const p = req.params as { name: string; groupId: string }
     return core.wa.groupMetadata(p.name, decodeURIComponent(p.groupId))
   })
+
+  // --- communities (read-only) ---
+  app.get('/v1/sessions/:name/communities', async (req) => {
+    return core.wa.communitiesList((req.params as { name: string }).name)
+  })
+  app.get('/v1/sessions/:name/communities/:communityId/groups', async (req) => {
+    const p = req.params as { name: string; communityId: string }
+    return core.wa.communityGroups(p.name, decodeURIComponent(p.communityId))
+  })
+
   app.post('/v1/sessions/:name/groups/:groupId/leave', async (req) => {
     const p = req.params as { name: string; groupId: string }
     return core.wa.groupLeave(p.name, decodeURIComponent(p.groupId))

@@ -27,6 +27,27 @@ describe('HistoryStore', () => {
     expect(list[0].body).toBe('edited')
   })
 
+  it('presents old stub rows as system events and can filter them out', () => {
+    const stubRaw = (id: string) => ({
+      key: { remoteJid: 'g@g.us', id },
+      messageStubType: 'GROUP_PARTICIPANT_ADD',
+      messageStubParameters: ['{"id":"9@lid","admin":null}'],
+    })
+    for (let i = 1; i <= 60; i++) {
+      store.save({ session: 'default', chatId: 'g@g.us', msgId: `s${i}`, fromMe: false, timestamp: 1000 + i, type: 'unknown', raw: stubRaw(`s${i}`) })
+    }
+    store.save({ session: 'default', chatId: 'g@g.us', msgId: 'real', fromMe: false, timestamp: 500, type: 'conversation', body: 'hello', raw: { message: { conversation: 'hello' } } })
+
+    const all = store.list('default', 'g@g.us', 5)
+    expect(all).toHaveLength(5)
+    expect(all[0]).toMatchObject({ type: 'system', body: 'added: 9@lid' })
+
+    const noSystem = store.list('default', 'g@g.us', 5, { includeSystem: false })
+    expect(noSystem.map((m) => m.msgId)).toEqual(['real'])
+
+    expect(store.list('default', 'empty@g.us', 5, { includeSystem: false })).toEqual([])
+  })
+
   it('returns the oldest message for a chat', () => {
     store.save({ session: 'default', chatId: 'a@c.us', msgId: '2', fromMe: true, timestamp: 200, type: 'text', body: 'newer', raw: {} })
     store.save({ session: 'default', chatId: 'a@c.us', msgId: '1', fromMe: false, timestamp: 100, type: 'text', body: 'older', raw: {} })

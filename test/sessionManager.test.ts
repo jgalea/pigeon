@@ -73,6 +73,29 @@ describe('SessionManager', () => {
     expect(hs.get('default', 'a@s.whatsapp.net', 'V1')?.mediaPath).toBe('/media/abc.ogg')
   })
 
+  it('stores stub events as system messages with a readable body', async () => {
+    const { mgr, sock, hs } = newManager()
+    await mgr.start('default')
+    sock.emit('messages.upsert', {
+      type: 'notify',
+      messages: [
+        {
+          key: { remoteJid: 'g@g.us', id: 'S1', fromMe: false },
+          messageTimestamp: 123,
+          messageStubType: 'GROUP_PARTICIPANT_LEAVE',
+          messageStubParameters: ['{"id":"77@lid","admin":null}'],
+        },
+        {
+          key: { remoteJid: 'g@g.us', id: 'M1', fromMe: false },
+          messageTimestamp: 124,
+          message: { senderKeyDistributionMessage: {}, conversation: 'hi all' },
+        },
+      ],
+    })
+    expect(hs.get('default', 'g@g.us', 'S1')).toMatchObject({ type: 'system', body: 'left: 77@lid' })
+    expect(hs.get('default', 'g@g.us', 'M1')).toMatchObject({ type: 'conversation', body: 'hi all' })
+  })
+
   it('leaves text messages alone', async () => {
     const calls: unknown[] = []
     const media = {

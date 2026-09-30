@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url'
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { z } from 'zod'
+import { summarizeGroup } from './core/groups.js'
 
 export interface McpConfig {
   url: string
@@ -81,7 +82,7 @@ export function buildServer(cfg: McpConfig): McpServer {
   })
 
   const s = cfg.session
-  const server = new McpServer({ name: 'pigeon', version: '1.3.0' })
+  const server = new McpServer({ name: 'pigeon', version: '1.4.0' })
 
   const draftNote =
     ' DRAFT-ONLY MODE (WA_MCP_READONLY) is on: this does NOT send — it returns the composed draft for review.'
@@ -128,19 +129,59 @@ export function buildServer(cfg: McpConfig): McpServer {
   )
 
   server.registerTool(
+    'list_communities',
+    {
+      description:
+        'List the WhatsApp communities you belong to, each with its id (...@g.us), name and description. Read-only. Use list_community_groups with a community id to see its subgroups.',
+      inputSchema: {},
+    },
+    async () => asResult(await api('GET', `/v1/sessions/${s}/communities`)),
+  )
+
+  server.registerTool(
+    'list_community_groups',
+    {
+      description:
+        "List every group linked to a WhatsApp community, including ones you have not joined, with each group's id, name, description (where readable), whether you are a member, and whether it is the announcement group. communityId can be the community id or the id of any of its subgroups. Read-only: this never joins, requests to join, or posts.",
+      inputSchema: {
+        communityId: z.string().describe('The community JID (...@g.us), or any subgroup JID of it'),
+      },
+    },
+    async ({ communityId }) =>
+      asResult(await api('GET', `/v1/sessions/${s}/communities/${encodeURIComponent(communityId)}/groups`)),
+  )
+
+  server.registerTool(
+    'group_info',
+    {
+      description:
+        "Get a WhatsApp group's metadata: name, description (check it for posting rules before posting), whether only admins may post, join-approval mode, member count, admins, and its community (if any). groupId is the group JID (...@g.us). Read-only.",
+      inputSchema: {
+        groupId: z.string().describe('The group JID (...@g.us)'),
+      },
+    },
+    async ({ groupId }) =>
+      asResult(summarizeGroup(await api('GET', `/v1/sessions/${s}/groups/${encodeURIComponent(groupId)}`))),
+  )
+
+  server.registerTool(
     'read_messages',
     {
       description:
-        'Read stored messages from a chat, newest first. chatId is a phone number with country code (no +) or a full JID like 123456789@s.whatsapp.net or a group id ...@g.us.',
+        'Read stored messages from a chat, newest first. chatId is a phone number with country code (no +) or a full JID like 123456789@s.whatsapp.net or a group id ...@g.us. System events (joins, leaves, deletions, setting changes) are skipped unless includeSystem is true; they come back as type "system" with a short body.',
       inputSchema: {
         chatId: z.string().describe('Phone number or JID of the chat'),
         limit: z.number().int().positive().max(500).optional().describe('Max messages to return (default 30)'),
+        includeSystem: z
+          .boolean()
+          .optional()
+          .describe('Include system events such as member joins/leaves and deletions (default false)'),
       },
     },
-    async ({ chatId, limit }) => {
+    async ({ chatId, limit, includeSystem }) => {
       const msgs = (await api(
         'GET',
-        `/v1/sessions/${s}/chats/${encodeURIComponent(chatId)}/messages?limit=${limit ?? 30}`,
+        `/v1/sessions/${s}/chats/${encodeURIComponent(chatId)}/messages?limit=${limit ?? 30}&includeSystem=${includeSystem ? 'true' : 'false'}`,
       )) as Array<Record<string, unknown>>
       return asResult(msgs.map(({ raw: _raw, session: _session, ...m }) => m))
     },
@@ -160,9 +201,13 @@ export function buildServer(cfg: McpConfig): McpServer {
           .max(500)
           .optional()
           .describe('Max messages to return after merging (default 30)'),
+        includeSystem: z
+          .boolean()
+          .optional()
+          .describe('Include system events such as deletions and setting changes (default false)'),
       },
     },
-    async ({ contact, limit }) => {
+    async ({ contact, limit, includeSystem }) => {
       const lim = limit ?? 30
       const { jids } = (await api(
         'GET',
@@ -173,7 +218,7 @@ export function buildServer(cfg: McpConfig): McpServer {
           try {
             return (await api(
               'GET',
-              `/v1/sessions/${s}/chats/${encodeURIComponent(jid)}/messages?limit=${lim}`,
+              `/v1/sessions/${s}/chats/${encodeURIComponent(jid)}/messages?limit=${lim}&includeSystem=${includeSystem ? 'true' : 'false'}`,
             )) as Array<Record<string, unknown>>
           } catch {
             return [] as Array<Record<string, unknown>>
