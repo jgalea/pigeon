@@ -40,7 +40,14 @@ const app = await buildServer({ config, logger, sessions, messages, history, med
 await app.listen({ host: config.host, port: config.port })
 logger.info({ port: config.port, host: config.host }, 'pigeon listening')
 
-await sessions.start('default').catch((e) => logger.error({ e }, 'default session start failed'))
+// Bring back every paired number, not just default, or a second number sits
+// disconnected after a container restart.
+const paired = db
+  .prepare("SELECT DISTINCT session FROM auth_state WHERE key='creds'")
+  .all() as { session: string }[]
+for (const name of new Set(['default', ...paired.map((r) => r.session)])) {
+  await sessions.start(name).catch((e) => logger.error({ e, name }, 'session start failed'))
+}
 
 const cleanupTimer = setInterval(() => media.cleanup(), 24 * 3600_000)
 
