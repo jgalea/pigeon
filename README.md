@@ -111,7 +111,7 @@ Flatter endpoints with the session in the body: `sendText`, `sendImage`, `sendFi
 
 Media takes `{data}` (base64) or `{url}` (Pigeon fetches it server-side). Chat ids are `<number>@s.whatsapp.net` for people and `<id>@g.us` for groups.
 
-URLs Pigeon fetches itself (media `{url}`, group pictures, webhook targets) must be public `http` or `https`. The host is resolved before connecting and refused if any address is loopback, private (RFC 1918), CGNAT, link-local, ULA, multicast or the Docker host; redirects are checked hop by hop (3 at most), downloads are capped at 64 MB and time out after 30 s. Webhook URLs are checked when set with `PUT /v1/sessions/:name/webhooks`, which answers 400 for a rejected one.
+URLs Pigeon fetches itself (media `{url}`, group pictures, webhook targets) must be public `http` or `https` without credentials. The host is resolved before connecting and refused if any address is loopback, private (RFC 1918), CGNAT, link-local, ULA, multicast, the Docker host, or an IPv6 form that embeds one of those (mapped, NAT64, 6to4); the connection is then made to the address that was checked, not to a fresh DNS answer. Redirects are checked hop by hop (3 at most), downloads are capped at 64 MB and time out after 30 s. Webhook URLs are checked when set with `PUT /v1/sessions/:name/webhooks`, which answers 400 for a rejected one.
 
 ## MCP server
 
