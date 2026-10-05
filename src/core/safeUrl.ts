@@ -1,13 +1,19 @@
 import { lookup as dnsLookup } from 'node:dns/promises'
-import { isIP } from 'node:net'
+import http from 'node:http'
+import https from 'node:https'
+import { isIP, isIPv6 } from 'node:net'
+import { Readable } from 'node:stream'
 
 // The gateway fetches caller-supplied URLs (outgoing media, webhooks). Inside
 // Docker it can reach the host's loopback through host.docker.internal and
-// anything on the LAN, so every URL is resolved and checked against the
-// private, loopback, link-local and multicast ranges before a connection is
-// opened, and again on every redirect hop.
+// anything on the LAN, so every URL is resolved and every resolved address is
+// checked against the private, loopback, link-local and multicast ranges, the
+// connection is then pinned to one of those checked addresses (so a second
+// DNS answer can't swap in a private one), and redirects repeat the whole
+// thing per hop.
 
 export type Lookup = (host: string) => Promise<string[]>
+export type Transport = (url: URL, address: string, signal: AbortSignal) => Promise<Response>
 
 export interface UrlPolicy {
   lookup?: Lookup
@@ -25,61 +31,80 @@ const BLOCKED_HOSTS = new Set([
 
 const defaultLookup: Lookup = async (host) => (await dnsLookup(host, { all: true })).map((a) => a.address)
 
-function ipv4ToInt(ip: string): number {
-  const [a, b, c, d] = ip.split('.').map(Number)
-  return ((a << 24) >>> 0) + (b << 16) + (c << 8) + d
+// Only canonical dotted-quad input reaches this: URL hostnames come out of
+// the WHATWG parser normalised (decimal, octal, hex and short forms all
+// become a.b.c.d) and DNS answers are canonical already.
+function parseIPv4(ip: string): number[] | undefined {
+  return isIP(ip) === 4 ? ip.split('.').map(Number) : undefined
 }
 
-function inV4Range(ip: string, base: string, bits: number): boolean {
-  const mask = bits === 0 ? 0 : (~0 << (32 - bits)) >>> 0
-  return ((ipv4ToInt(ip) & mask) >>> 0) === ((ipv4ToInt(base) & mask) >>> 0)
+// 16 bytes, or undefined when not an IPv6 literal. Brackets and zone ids are
+// dropped first; a dotted-quad tail (::ffff:1.2.3.4) is folded into the last
+// two groups so every form ends up as the same bytes.
+function parseIPv6(ip: string): number[] | undefined {
+  const bare = ip.replace(/^\[|\]$/g, '').split('%')[0]
+  if (!isIPv6(bare)) return undefined
+  let s = bare
+  const dotted = s.match(/(\d+\.\d+\.\d+\.\d+)$/)
+  if (dotted) {
+    const [a, b, c, d] = dotted[1].split('.').map(Number)
+    s = `${s.slice(0, -dotted[1].length)}${((a << 8) | b).toString(16)}:${((c << 8) | d).toString(16)}`
+  }
+  const [head, tail] = s.split('::')
+  const h = head ? head.split(':').map((x) => parseInt(x, 16)) : []
+  const t = tail ? tail.split(':').map((x) => parseInt(x, 16)) : []
+  const words = s.includes('::') ? [...h, ...new Array(8 - h.length - t.length).fill(0), ...t] : h
+  if (words.length !== 8) return undefined
+  return words.flatMap((w) => [w >> 8, w & 0xff])
 }
 
-// 0.0.0.0/8 (this host), 10/8, 100.64/10 (CGNAT), 127/8, 169.254/16
-// (link-local, cloud metadata), 172.16/12, 192.168/16, 224/4 (multicast),
+// 0/8 (this host), 10/8, 100.64/10 (CGNAT), 127/8, 169.254/16 (link-local,
+// cloud metadata), 172.16/12, 192.0.0/24, 192.168/16, 224/4 (multicast),
 // 240/4 (reserved and broadcast).
-const V4_BLOCKED: Array<[string, number]> = [
-  ['0.0.0.0', 8],
-  ['10.0.0.0', 8],
-  ['100.64.0.0', 10],
-  ['127.0.0.0', 8],
-  ['169.254.0.0', 16],
-  ['172.16.0.0', 12],
-  ['192.168.0.0', 16],
-  ['224.0.0.0', 4],
-  ['240.0.0.0', 4],
-]
+function v4Blocked([a, b, c]: number[]): boolean {
+  return (
+    a === 0 ||
+    a === 10 ||
+    a === 127 ||
+    (a === 100 && b >= 64 && b <= 127) ||
+    (a === 169 && b === 254) ||
+    (a === 172 && b >= 16 && b <= 31) ||
+    (a === 192 && b === 0 && c === 0) ||
+    (a === 192 && b === 168) ||
+    a >= 224
+  )
+}
 
-function expandV6(ip: string): number[] {
-  const [head, tail = ''] = ip.split('::')
-  const parse = (s: string) => (s ? s.split(':').map((h) => parseInt(h, 16)) : [])
-  const h = parse(head)
-  const t = parse(tail)
-  const fill = new Array(Math.max(0, 8 - h.length - t.length)).fill(0)
-  return ip.includes('::') ? [...h, ...fill, ...t] : h
+// The IPv4 address an IPv6 address stands for, if it is one of the transition
+// forms: ::ffff:a.b.c.d (mapped), ::a.b.c.d (compatible), 64:ff9b::/96 and
+// 64:ff9b:1::/48 (NAT64), 2002::/16 (6to4).
+function embeddedV4(b: number[]): number[] | undefined {
+  const zero = (from: number, to: number) => b.slice(from, to).every((x) => x === 0)
+  if (zero(0, 10) && ((b[10] === 0xff && b[11] === 0xff) || zero(10, 12))) return b.slice(12)
+  if (b[0] === 0 && b[1] === 0x64 && b[2] === 0xff && b[3] === 0x9b && (zero(4, 12) || (b[4] === 0 && b[5] === 1))) {
+    return b.slice(12)
+  }
+  if (b[0] === 0x20 && b[1] === 0x02) return b.slice(2, 6)
+  return undefined
+}
+
+function v6Blocked(b: number[]): boolean {
+  if (b.every((x) => x === 0)) return true // ::
+  if (b.slice(0, 15).every((x) => x === 0) && b[15] === 1) return true // ::1
+  if ((b[0] & 0xfe) === 0xfc) return true // fc00::/7 ULA
+  if (b[0] === 0xfe && (b[1] & 0xc0) === 0x80) return true // fe80::/10 link-local
+  if (b[0] === 0xff) return true // ff00::/8 multicast
+  if (b[0] === 0x20 && b[1] === 0x01 && b[2] === 0 && b[3] === 0) return true // 2001::/32 Teredo
+  const v4 = embeddedV4(b)
+  return v4 ? v4Blocked(v4) : false
 }
 
 export function isBlockedAddress(address: string): boolean {
-  let ip = address.toLowerCase().replace(/^\[|\]$/g, '').split('%')[0]
-  // IPv4-mapped (::ffff:a.b.c.d) and NAT64 (64:ff9b::a.b.c.d) carry a v4 address.
-  const mapped = ip.match(/^(?:::ffff:|64:ff9b::)(\d+\.\d+\.\d+\.\d+)$/)
-  if (mapped) ip = mapped[1]
-  const kind = isIP(ip)
-  if (kind === 4) return V4_BLOCKED.some(([base, bits]) => inV4Range(ip, base, bits))
-  if (kind !== 6) return true
-  const words = expandV6(ip)
-  if (words.length !== 8) return true
-  if (words.every((w) => w === 0)) return true // ::
-  if (words.slice(0, 7).every((w) => w === 0) && words[7] === 1) return true // ::1
-  const first = words[0]
-  if ((first & 0xfe00) === 0xfc00) return true // fc00::/7 ULA
-  if ((first & 0xffc0) === 0xfe80) return true // fe80::/10 link-local
-  if ((first & 0xff00) === 0xff00) return true // ff00::/8 multicast
-  if (first === 0 && words[1] === 0 && words[2] === 0 && words[3] === 0 && words[4] === 0 && words[5] === 0xffff) {
-    // ::ffff:0:0/96 written in hex form
-    return isBlockedAddress(`${words[6] >> 8}.${words[6] & 0xff}.${words[7] >> 8}.${words[7] & 0xff}`)
-  }
-  return false
+  const v4 = parseIPv4(address)
+  if (v4) return v4Blocked(v4)
+  const v6 = parseIPv6(address)
+  if (v6) return v6Blocked(v6)
+  return true
 }
 
 let hostGatewayAddresses: Promise<string[]> | undefined
@@ -92,7 +117,13 @@ function gatewayAddresses(lookup: Lookup): Promise<string[]> {
   return hostGatewayAddresses
 }
 
-export async function assertPublicUrl(input: string, policy: UrlPolicy = {}): Promise<URL> {
+export interface ResolvedUrl {
+  url: URL
+  // Every address the host resolved to; all of them passed the checks.
+  addresses: string[]
+}
+
+export async function resolvePublicUrl(input: string, policy: UrlPolicy = {}): Promise<ResolvedUrl> {
   let url: URL
   try {
     url = new URL(input)
@@ -102,6 +133,7 @@ export async function assertPublicUrl(input: string, policy: UrlPolicy = {}): Pr
   if (url.protocol !== 'http:' && url.protocol !== 'https:') {
     throw new Error(`url must be http or https, got ${url.protocol.replace(/:$/, '')}`)
   }
+  if (url.username || url.password) throw new Error('url must not carry credentials')
   const host = url.hostname.toLowerCase().replace(/\.$/, '')
   const blockedHosts = new Set([...BLOCKED_HOSTS, ...(policy.blockedHosts ?? []).map((h) => h.toLowerCase())])
   if (!host || blockedHosts.has(host) || host.endsWith('.localhost')) {
@@ -126,28 +158,60 @@ export async function assertPublicUrl(input: string, policy: UrlPolicy = {}): Pr
       throw new Error(`url host ${host} resolves to ${a}, which is a private or local address`)
     }
   }
-  return url
+  return { url, addresses }
 }
+
+export async function assertPublicUrl(input: string, policy: UrlPolicy = {}): Promise<URL> {
+  return (await resolvePublicUrl(input, policy)).url
+}
+
+// GET the url over a socket opened to `address`, not to whatever the hostname
+// resolves to a second time. The Host header and TLS servername still come
+// from the url, so virtual hosting and certificates work as normal.
+export const pinnedRequest: Transport = (url, address, signal) =>
+  new Promise((resolve, reject) => {
+    const family = isIP(address)
+    const lookup = ((_host: string, opts: { all?: boolean } | ((...a: unknown[]) => void), cb?: (...a: unknown[]) => void) => {
+      const done = typeof opts === 'function' ? opts : cb!
+      if (typeof opts !== 'function' && opts.all) done(null, [{ address, family }])
+      else done(null, address, family)
+    }) as unknown as http.RequestOptions['lookup']
+    const mod = url.protocol === 'https:' ? https : http
+    const req = mod.request(url, { method: 'GET', signal, lookup }, (res) => {
+      const headers = new Headers()
+      for (const [k, v] of Object.entries(res.headers)) {
+        if (v !== undefined) headers.set(k, Array.isArray(v) ? v.join(', ') : v)
+      }
+      const status = res.statusCode && res.statusCode >= 200 ? res.statusCode : 502
+      const bodyless = status === 204 || status === 205 || status === 304
+      if (bodyless) res.resume()
+      resolve(new Response(bodyless ? null : (Readable.toWeb(res) as unknown as ReadableStream), { status, headers }))
+    })
+    req.on('error', reject)
+    req.end()
+  })
 
 export interface FetchPublicOptions extends UrlPolicy {
   maxBytes?: number
   timeoutMs?: number
   maxRedirects?: number
-  fetchImpl?: typeof fetch
+  transport?: Transport
 }
 
-// Fetch a validated public URL. Redirects are followed by hand so each hop is
-// validated too; the body is read with a hard byte cap.
+// Fetch a validated public URL over a pinned connection. Redirects are
+// followed by hand so each hop is validated and pinned too.
 export async function fetchPublic(input: string, opts: FetchPublicOptions = {}): Promise<Response> {
   const maxRedirects = opts.maxRedirects ?? 3
-  const fetchImpl = opts.fetchImpl ?? fetch
+  const transport = opts.transport ?? pinnedRequest
   const signal = AbortSignal.timeout(opts.timeoutMs ?? 30_000)
-  let url = await assertPublicUrl(input, opts)
+  let { url, addresses } = await resolvePublicUrl(input, opts)
   for (let hop = 0; ; hop++) {
-    const res = await fetchImpl(url, { redirect: 'manual', signal })
-    if (res.status >= 300 && res.status < 400 && res.headers.get('location')) {
+    const res = await transport(url, addresses[0], signal)
+    const location = res.headers.get('location')
+    if (res.status >= 300 && res.status < 400 && location) {
       if (hop >= maxRedirects) throw new Error(`too many redirects fetching ${input}`)
-      url = await assertPublicUrl(new URL(res.headers.get('location')!, url).toString(), opts)
+      await res.body?.cancel().catch(() => {})
+      ;({ url, addresses } = await resolvePublicUrl(new URL(location, url).toString(), opts))
       continue
     }
     return res

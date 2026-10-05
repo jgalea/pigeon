@@ -4,7 +4,7 @@ import { randomUUID } from 'node:crypto'
 import { downloadMediaMessage } from '@whiskeysockets/baileys'
 import type { Logger } from '../logger.js'
 import type { OutgoingMedia } from './types.js'
-import { fetchPublic, readCapped } from './safeUrl.js'
+import { fetchPublic, readCapped, type Transport } from './safeUrl.js'
 
 // Same ceiling as the HTTP body limit, so a URL can't pull in more than a
 // base64 upload could.
@@ -16,17 +16,18 @@ export class MediaService {
     private mediaDir: string,
     private lifetimeDays: number,
     private logger: Logger,
-    private fetchImpl: typeof fetch = fetch,
+    private transport?: Transport,
   ) {
     mkdirSync(mediaDir, { recursive: true })
   }
 
   // Media URLs come from API callers, so they go through the public-address
-  // check (no loopback, LAN, link-local or Docker host) on every hop.
+  // check (no loopback, LAN, link-local or Docker host) and a pinned
+  // connection on every hop.
   async resolveOutgoing(m: OutgoingMedia): Promise<Buffer> {
     if (m.data) return Buffer.from(m.data, 'base64')
     if (m.url) {
-      const r = await fetchPublic(m.url, { fetchImpl: this.fetchImpl, timeoutMs: MEDIA_FETCH_TIMEOUT_MS })
+      const r = await fetchPublic(m.url, { transport: this.transport, timeoutMs: MEDIA_FETCH_TIMEOUT_MS })
       if (!r.ok) throw new Error(`failed to fetch media url: ${r.status}`)
       return readCapped(r, MAX_MEDIA_BYTES)
     }
