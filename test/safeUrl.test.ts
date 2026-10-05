@@ -243,6 +243,7 @@ describe('fetchPublic', () => {
     let n = 0
     const transport = vi.fn(async () => {
       n++
+      if (n > 10) throw new Error('runaway redirect loop')
       return new Response(null, { status: 301, headers: { location: `https://public.example/${n}` } })
     })
     await expect(
@@ -286,8 +287,11 @@ describe('fetchPublicBytes', () => {
     const transport: Transport = async (_u, _a, signal) =>
       new Response(
         new ReadableStream({
+          // Finite on purpose: without the cap this resolves with 1 MB and the
+          // rejection assertion below fails, instead of the worker running out of memory.
           pull(c) {
             if (signal.aborted) return c.error(new Error('aborted'))
+            if (sent >= 1 << 20) return c.close()
             sent += 1024
             c.enqueue(new Uint8Array(1024))
           },
