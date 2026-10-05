@@ -4,21 +4,45 @@ import https from 'node:https'
 import { isIP, isIPv6 } from 'node:net'
 import { Readable } from 'node:stream'
 
-// The gateway fetches caller-supplied URLs (outgoing media, webhooks). Inside
-// Docker it can reach the host's loopback through host.docker.internal and
-// anything on the LAN, so every URL is resolved and every resolved address is
-// checked against the private, loopback, link-local and multicast ranges, the
-// connection is then pinned to one of those checked addresses (so a second
-// DNS answer can't swap in a private one), and redirects repeat the whole
-// thing per hop.
+// The gateway can fetch caller-supplied URLs (outgoing media, webhooks), but
+// only when the operator opts in (PIGEON_ALLOW_URL_MEDIA, PIGEON_ALLOW_WEBHOOKS).
+// Inside Docker it can reach the host's loopback through host.docker.internal
+// and anything on the LAN, so when enabled every URL is resolved, every
+// resolved address is checked against the private, loopback, link-local and
+// multicast ranges, the connection is pinned to one of those checked
+// addresses (so a second DNS answer can't swap in a private one), and
+// redirects repeat the whole thing per hop. DNS, connect, idle and total
+// wall-clock time are bounded, as are the address count, redirect count and
+// body size, and a body that goes over the cap aborts the socket.
+
+export const MAX_ADDRESSES = 16
+export const DEFAULT_MAX_BYTES = 64 * 1024 * 1024
+export const DEFAULT_TIMEOUT_MS = 30_000
+export const DEFAULT_IDLE_TIMEOUT_MS = 10_000
+export const DEFAULT_DNS_TIMEOUT_MS = 5_000
+export const DEFAULT_MAX_REDIRECTS = 3
 
 export type Lookup = (host: string) => Promise<string[]>
-export type Transport = (url: URL, address: string, signal: AbortSignal) => Promise<Response>
+
+export interface RequestInitLite {
+  method?: string
+  headers?: Record<string, string>
+  body?: string
+}
+
+export type Transport = (
+  url: URL,
+  address: string,
+  signal: AbortSignal,
+  idleTimeoutMs: number,
+  init?: RequestInitLite,
+) => Promise<Response>
 
 export interface UrlPolicy {
   lookup?: Lookup
   // Hostnames refused outright, before DNS. Case-insensitive.
   blockedHosts?: string[]
+  dnsTimeoutMs?: number
 }
 
 const BLOCKED_HOSTS = new Set([
@@ -30,6 +54,14 @@ const BLOCKED_HOSTS = new Set([
 ])
 
 const defaultLookup: Lookup = async (host) => (await dnsLookup(host, { all: true })).map((a) => a.address)
+
+function withTimeout<T>(p: Promise<T>, ms: number, what: string): Promise<T> {
+  let timer: NodeJS.Timeout | undefined
+  const expiry = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`${what} timed out after ${ms}ms`)), ms)
+  })
+  return Promise.race([p, expiry]).finally(() => clearTimeout(timer))
+}
 
 // Only canonical dotted-quad input reaches this: URL hostnames come out of
 // the WHATWG parser normalised (decimal, octal, hex and short forms all
@@ -113,7 +145,7 @@ let hostGatewayAddresses: Promise<string[]> | undefined
 // address, which is not in a private range on some setups) is also refused.
 function gatewayAddresses(lookup: Lookup): Promise<string[]> {
   if (lookup !== defaultLookup) return Promise.resolve([])
-  hostGatewayAddresses ??= lookup('host.docker.internal').catch(() => [])
+  hostGatewayAddresses ??= withTimeout(lookup('host.docker.internal'), DEFAULT_DNS_TIMEOUT_MS, 'dns').catch(() => [])
   return hostGatewayAddresses
 }
 
@@ -123,6 +155,10 @@ export interface ResolvedUrl {
   addresses: string[]
 }
 
+// The WHATWG URL object is the single source of truth: its hostname is what
+// gets checked here and what node:http gets handed, so percent-encoding,
+// IDNA, odd IPv4 spellings and bracket handling are settled once by the
+// parser before any check runs.
 export async function resolvePublicUrl(input: string, policy: UrlPolicy = {}): Promise<ResolvedUrl> {
   let url: URL
   try {
@@ -146,11 +182,15 @@ export async function resolvePublicUrl(input: string, policy: UrlPolicy = {}): P
     addresses = [literal]
   } else {
     try {
-      addresses = await lookup(host)
-    } catch {
+      addresses = await withTimeout(lookup(host), policy.dnsTimeoutMs ?? DEFAULT_DNS_TIMEOUT_MS, `dns lookup of ${host}`)
+    } catch (e) {
+      if (/timed out/.test((e as Error).message)) throw e
       throw new Error(`url host ${host} did not resolve`)
     }
     if (addresses.length === 0) throw new Error(`url host ${host} did not resolve`)
+    if (addresses.length > MAX_ADDRESSES) {
+      throw new Error(`url host ${host} resolves to ${addresses.length} addresses (limit ${MAX_ADDRESSES})`)
+    }
   }
   const gateway = await gatewayAddresses(lookup)
   for (const a of addresses) {
@@ -165,57 +205,130 @@ export async function assertPublicUrl(input: string, policy: UrlPolicy = {}): Pr
   return (await resolvePublicUrl(input, policy)).url
 }
 
-// GET the url over a socket opened to `address`, not to whatever the hostname
-// resolves to a second time. The Host header and TLS servername still come
-// from the url, so virtual hosting and certificates work as normal.
-export const pinnedRequest: Transport = (url, address, signal) =>
+// Open the url over a socket to `address`: node is handed the validated
+// address as the hostname, so it never resolves anything itself (a `lookup`
+// hook would not do, node skips it for IP-literal hostnames). The Host header
+// and TLS servername come from the url, so virtual hosting and certificates
+// work as normal. The socket is destroyed when it sits idle for idleTimeoutMs
+// (covers connect and a stalled body) or when `signal` fires (the total
+// wall-clock budget).
+export const pinnedRequest: Transport = (url, address, signal, idleTimeoutMs, init = {}) =>
   new Promise((resolve, reject) => {
-    const family = isIP(address)
-    const lookup = ((_host: string, opts: { all?: boolean } | ((...a: unknown[]) => void), cb?: (...a: unknown[]) => void) => {
-      const done = typeof opts === 'function' ? opts : cb!
-      if (typeof opts !== 'function' && opts.all) done(null, [{ address, family }])
-      else done(null, address, family)
-    }) as unknown as http.RequestOptions['lookup']
-    const mod = url.protocol === 'https:' ? https : http
-    const req = mod.request(url, { method: 'GET', signal, lookup }, (res) => {
-      const headers = new Headers()
-      for (const [k, v] of Object.entries(res.headers)) {
-        if (v !== undefined) headers.set(k, Array.isArray(v) ? v.join(', ') : v)
-      }
-      const status = res.statusCode && res.statusCode >= 200 ? res.statusCode : 502
-      const bodyless = status === 204 || status === 205 || status === 304
-      if (bodyless) res.resume()
-      resolve(new Response(bodyless ? null : (Readable.toWeb(res) as unknown as ReadableStream), { status, headers }))
-    })
+    const secure = url.protocol === 'https:'
+    const bare = url.hostname.replace(/^\[|\]$/g, '')
+    const options: https.RequestOptions = {
+      hostname: address,
+      port: url.port || (secure ? 443 : 80),
+      path: `${url.pathname}${url.search}`,
+      method: init.method ?? 'GET',
+      headers: { ...init.headers, host: url.host },
+      signal,
+      timeout: idleTimeoutMs,
+      ...(secure && !isIP(bare) ? { servername: bare } : {}),
+    }
+    const req = (secure ? https : http).request(
+      options,
+      (res) => {
+        const headers = new Headers()
+        for (const [k, v] of Object.entries(res.headers)) {
+          if (v !== undefined) headers.set(k, Array.isArray(v) ? v.join(', ') : v)
+        }
+        const status = res.statusCode && res.statusCode >= 200 ? res.statusCode : 502
+        const bodyless = status === 204 || status === 205 || status === 304
+        if (bodyless) res.resume()
+        resolve(new Response(bodyless ? null : (Readable.toWeb(res) as unknown as ReadableStream), { status, headers }))
+      },
+    )
+    req.on('timeout', () => req.destroy(new Error(`connection to ${address} idle for ${idleTimeoutMs}ms`)))
     req.on('error', reject)
-    req.end()
+    req.end(init.body)
   })
 
 export interface FetchPublicOptions extends UrlPolicy {
   maxBytes?: number
   timeoutMs?: number
+  idleTimeoutMs?: number
   maxRedirects?: number
   transport?: Transport
 }
 
-// Fetch a validated public URL over a pinned connection. Redirects are
-// followed by hand so each hop is validated and pinned too.
-export async function fetchPublic(input: string, opts: FetchPublicOptions = {}): Promise<Response> {
-  const maxRedirects = opts.maxRedirects ?? 3
+interface Opened {
+  res: Response
+  abort: () => void
+}
+
+// Resolve, pin, request, and follow GET redirects by hand so each hop is
+// resolved and pinned again. One total wall-clock budget covers every hop and
+// the body read that follows.
+async function openPublic(input: string, init: RequestInitLite, opts: FetchPublicOptions): Promise<Opened> {
+  const controller = new AbortController()
+  const signal = AbortSignal.any([controller.signal, AbortSignal.timeout(opts.timeoutMs ?? DEFAULT_TIMEOUT_MS)])
+  const idle = opts.idleTimeoutMs ?? DEFAULT_IDLE_TIMEOUT_MS
   const transport = opts.transport ?? pinnedRequest
-  const signal = AbortSignal.timeout(opts.timeoutMs ?? 30_000)
+  const maxRedirects = opts.maxRedirects ?? DEFAULT_MAX_REDIRECTS
+  const abort = () => controller.abort()
   let { url, addresses } = await resolvePublicUrl(input, opts)
   for (let hop = 0; ; hop++) {
-    const res = await transport(url, addresses[0], signal)
+    const res = await transport(url, addresses[0], signal, idle, init)
     const location = res.headers.get('location')
-    if (res.status >= 300 && res.status < 400 && location) {
-      if (hop >= maxRedirects) throw new Error(`too many redirects fetching ${input}`)
+    if (res.status >= 300 && res.status < 400 && location && (init.method ?? 'GET') === 'GET') {
       await res.body?.cancel().catch(() => {})
+      if (hop >= maxRedirects) {
+        abort()
+        throw new Error(`too many redirects fetching ${input}`)
+      }
       ;({ url, addresses } = await resolvePublicUrl(new URL(location, url).toString(), opts))
       continue
     }
-    return res
+    return { res, abort }
   }
+}
+
+export async function fetchPublic(input: string, opts: FetchPublicOptions = {}): Promise<Response> {
+  return (await openPublic(input, {}, opts)).res
+}
+
+export interface PublicBytes {
+  ok: boolean
+  status: number
+  headers: Headers
+  bytes: Buffer
+}
+
+// GET a public url and read at most maxBytes; anything over tears the
+// connection down instead of being buffered.
+export async function fetchPublicBytes(input: string, opts: FetchPublicOptions = {}): Promise<PublicBytes> {
+  const { res, abort } = await openPublic(input, {}, opts)
+  try {
+    const bytes = await readCapped(res, opts.maxBytes ?? DEFAULT_MAX_BYTES)
+    return { ok: res.ok, status: res.status, headers: res.headers, bytes }
+  } catch (e) {
+    abort()
+    throw e
+  }
+}
+
+export const WEBHOOK_TIMEOUT_MS = 10_000
+export const WEBHOOK_MAX_RESPONSE_BYTES = 64 * 1024
+
+// POST to a public webhook url over a pinned connection. Redirects are not
+// followed; the response body is drained under a small cap and discarded.
+export async function postWebhook(
+  url: string,
+  init: RequestInitLite,
+  opts: FetchPublicOptions = {},
+): Promise<{ ok: boolean; status: number }> {
+  const { res, abort } = await openPublic(
+    url,
+    { ...init, method: 'POST' },
+    { timeoutMs: WEBHOOK_TIMEOUT_MS, ...opts, maxRedirects: 0 },
+  )
+  try {
+    await readCapped(res, opts.maxBytes ?? WEBHOOK_MAX_RESPONSE_BYTES)
+  } catch {
+    abort()
+  }
+  return { ok: res.ok, status: res.status }
 }
 
 export async function readCapped(res: Response, maxBytes: number): Promise<Buffer> {
@@ -230,7 +343,7 @@ export async function readCapped(res: Response, maxBytes: number): Promise<Buffe
     if (done) break
     total += value.byteLength
     if (total > maxBytes) {
-      await reader.cancel()
+      await reader.cancel().catch(() => {})
       throw new Error(`response too large: over ${maxBytes} bytes`)
     }
     chunks.push(value)

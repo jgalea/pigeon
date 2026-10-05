@@ -337,7 +337,7 @@ export function buildServer(cfg: McpConfig, files: McpFiles = loadMcpFiles()): M
     'send_media',
     {
       description:
-        'Send an image, file, voice note, or video. Provide either a public url or a local file path. Local files are only read from ~/Downloads, ~/code/artifacts, the Pigeon media folder and any PIGEON_UPLOAD_DIRS folder, and never from dotfiles or dot-directories.' +
+        'Send an image, file, voice note, or video. Provide either a public url or a local file path. A url is only fetched when the gateway runs with PIGEON_ALLOW_URL_MEDIA=1 (off by default); otherwise download the file first and send it by path. Local files are only read from ~/Downloads, ~/code/artifacts, the Pigeon media folder and any PIGEON_UPLOAD_DIRS folder, and never from dotfiles or dot-directories.' +
         draftSuffix,
       inputSchema: {
         chatId: z.string().describe('Phone number or JID of the recipient'),

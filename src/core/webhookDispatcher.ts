@@ -1,8 +1,11 @@
 import { createHmac } from 'node:crypto'
 import type { Logger } from '../logger.js'
 import type { WebhookEvent } from './types.js'
+import { postWebhook, type RequestInitLite } from './safeUrl.js'
 
-type Fetch = typeof fetch
+// Deliveries go over a pinned connection to a validated public address by
+// default (postWebhook); tests inject a stub.
+type Sender = (url: string, init: RequestInitLite) => Promise<{ ok: boolean }>
 
 export class WebhookDispatcher {
   private urls = new Map<string, string[]>()
@@ -10,7 +13,7 @@ export class WebhookDispatcher {
 
   constructor(
     private logger: Logger,
-    private fetchImpl: Fetch = fetch,
+    private send: Sender = postWebhook,
     private opts: { retries: number; baseDelayMs: number; secret?: string } = {
       retries: 3,
       baseDelayMs: 500,
@@ -48,14 +51,10 @@ export class WebhookDispatcher {
     }
     for (let attempt = 0; attempt <= this.opts.retries; attempt++) {
       try {
-        const res = await this.fetchImpl(url, {
-          method: 'POST',
-          headers,
-          body,
-        })
-        if ((res as { ok: boolean }).ok) return
-      } catch {
-        this.logger.warn({ url, attempt }, 'webhook delivery failed')
+        const res = await this.send(url, { method: 'POST', headers, body })
+        if (res.ok) return
+      } catch (e) {
+        this.logger.warn({ url, attempt, err: (e as Error).message }, 'webhook delivery failed')
       }
       if (attempt < this.opts.retries) {
         await new Promise((r) => setTimeout(r, this.opts.baseDelayMs * 2 ** attempt))

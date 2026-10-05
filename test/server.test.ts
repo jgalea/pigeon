@@ -3,12 +3,13 @@ import Fastify from 'fastify'
 import { apiKeyMatches, buildServer, type Core } from '../src/http/server.js'
 import { registerV1 } from '../src/http/v1.js'
 import { WebhookDispatcher } from '../src/core/webhookDispatcher.js'
+import { loadConfig } from '../src/config.js'
 
 const logger = { info() {}, warn() {}, error() {} } as never
 
-function coreMock(): Core {
+function coreMock(over: { allowWebhooks?: boolean } = { allowWebhooks: true }): Core {
   return {
-    config: { apiKey: 'secret-key' } as never,
+    config: { apiKey: 'secret-key', ...over } as never,
     logger,
     sessions: { list: vi.fn(() => [{ name: 'default', status: 'WORKING' }]) } as never,
     messages: {} as never,
@@ -43,12 +44,40 @@ describe('api key hook', () => {
   })
 })
 
+describe('opt-in flags', () => {
+  it('default to off and read the usual truthy spellings', () => {
+    const off = loadConfig({ WA_API_KEY: 'k' } as NodeJS.ProcessEnv)
+    expect(off.allowUrlMedia).toBe(false)
+    expect(off.allowWebhooks).toBe(false)
+    const on = loadConfig({ WA_API_KEY: 'k', PIGEON_ALLOW_URL_MEDIA: '1', PIGEON_ALLOW_WEBHOOKS: 'true' } as NodeJS.ProcessEnv)
+    expect(on.allowUrlMedia).toBe(true)
+    expect(on.allowWebhooks).toBe(true)
+    expect(loadConfig({ WA_API_KEY: 'k', PIGEON_ALLOW_WEBHOOKS: '0' } as NodeJS.ProcessEnv).allowWebhooks).toBe(false)
+  })
+})
+
 describe('PUT /v1/sessions/:name/webhooks', () => {
   async function appWith(core: Core) {
     const app = Fastify()
     await registerV1(app, core)
     return app
   }
+
+  it('refuses any url while webhooks are off, but still lets the list be cleared', async () => {
+    const core = coreMock({ allowWebhooks: false })
+    const app = await appWith(core)
+    const r = await app.inject({
+      method: 'PUT',
+      url: '/v1/sessions/default/webhooks',
+      payload: { urls: ['https://203.0.113.10/hook'] },
+    })
+    expect(r.statusCode).toBe(400)
+    expect(r.json().error).toMatch(/PIGEON_ALLOW_WEBHOOKS=1/)
+    expect(core.webhooks.getUrls('default')).toEqual([])
+    const clear = await app.inject({ method: 'PUT', url: '/v1/sessions/default/webhooks', payload: { urls: [] } })
+    expect(clear.statusCode).toBe(200)
+    expect(clear.json()).toEqual({ urls: [] })
+  })
 
   it('rejects local, private and docker-host urls without storing anything', async () => {
     const core = coreMock()

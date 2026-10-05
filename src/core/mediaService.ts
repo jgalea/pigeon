@@ -4,32 +4,47 @@ import { randomUUID } from 'node:crypto'
 import { downloadMediaMessage } from '@whiskeysockets/baileys'
 import type { Logger } from '../logger.js'
 import type { OutgoingMedia } from './types.js'
-import { fetchPublic, readCapped, type Transport } from './safeUrl.js'
+import { fetchPublicBytes, type Transport } from './safeUrl.js'
 
 // Same ceiling as the HTTP body limit, so a URL can't pull in more than a
 // base64 upload could.
 export const MAX_MEDIA_BYTES = 64 * 1024 * 1024
 export const MEDIA_FETCH_TIMEOUT_MS = 30_000
 
+export const URL_MEDIA_OFF =
+  'fetching media from a url is off on this gateway: download the file first and send it by path or as base64 data, or set PIGEON_ALLOW_URL_MEDIA=1 to enable url fetching (this accepts residual SSRF risk)'
+
+export interface MediaServiceOptions {
+  // Server-side fetching of media urls (PIGEON_ALLOW_URL_MEDIA). Off by default.
+  allowUrl?: boolean
+  transport?: Transport
+}
+
 export class MediaService {
   constructor(
     private mediaDir: string,
     private lifetimeDays: number,
     private logger: Logger,
-    private transport?: Transport,
+    private opts: MediaServiceOptions = {},
   ) {
     mkdirSync(mediaDir, { recursive: true })
   }
 
-  // Media URLs come from API callers, so they go through the public-address
-  // check (no loopback, LAN, link-local or Docker host) and a pinned
-  // connection on every hop.
+  // Media URLs come from API callers. They are only fetched when the operator
+  // opted in, and then through the public-address check (no loopback, LAN,
+  // link-local or Docker host), a pinned connection on every hop, and a
+  // streamed byte cap.
   async resolveOutgoing(m: OutgoingMedia): Promise<Buffer> {
     if (m.data) return Buffer.from(m.data, 'base64')
     if (m.url) {
-      const r = await fetchPublic(m.url, { transport: this.transport, timeoutMs: MEDIA_FETCH_TIMEOUT_MS })
+      if (!this.opts.allowUrl) throw new Error(URL_MEDIA_OFF)
+      const r = await fetchPublicBytes(m.url, {
+        transport: this.opts.transport,
+        timeoutMs: MEDIA_FETCH_TIMEOUT_MS,
+        maxBytes: MAX_MEDIA_BYTES,
+      })
       if (!r.ok) throw new Error(`failed to fetch media url: ${r.status}`)
-      return readCapped(r, MAX_MEDIA_BYTES)
+      return r.bytes
     }
     throw new Error('media requires data or url')
   }

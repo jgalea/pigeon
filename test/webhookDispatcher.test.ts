@@ -28,4 +28,18 @@ describe('WebhookDispatcher', () => {
     await d.dispatch({ session: 'default', event: 'message', payload: {}, timestamp: 1 }, ['https://hook.test/x'])
     expect(fetchMock).toHaveBeenCalledTimes(3)
   })
+
+  it('delivers through the public-url check by default, so a private target is never connected to', async () => {
+    const warn = vi.fn()
+    const logger = { info() {}, warn, error() {} } as never
+    const d = new WebhookDispatcher(logger, undefined, { retries: 0, baseDelayMs: 1 })
+    await d.dispatch({ session: 'default', event: 'message', payload: {}, timestamp: 1 }, [
+      'http://127.0.0.1:1/hook',
+      'http://host.docker.internal:4000/hook',
+    ])
+    expect(warn).toHaveBeenCalledTimes(2)
+    for (const call of warn.mock.calls) {
+      expect((call[0] as { err: string }).err).toMatch(/private or local|not allowed/)
+    }
+  })
 })

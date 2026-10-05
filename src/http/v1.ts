@@ -285,11 +285,17 @@ export async function registerV1(app: FastifyInstance, core: Core) {
     return core.wa.requestPairingCode(name, (req.body as { phone: string }).phone)
   })
 
-  // Webhook targets are fetched from inside the container, so they get the
-  // same public-address check as media URLs.
+  // Webhook targets are fetched from inside the container, so they need the
+  // operator's opt-in and get the same public-address check as media URLs.
+  // Clearing the list is always allowed.
   app.put('/v1/sessions/:name/webhooks', async (req, reply) => {
     const name = (req.params as { name: string }).name
     const urls = (req.body as { urls?: string[] }).urls ?? []
+    if (urls.length > 0 && !core.config.allowWebhooks) {
+      return reply.code(400).send({
+        error: 'webhooks are off on this gateway; set PIGEON_ALLOW_WEBHOOKS=1 to enable them (this accepts residual SSRF risk)',
+      })
+    }
     for (const u of urls) {
       try {
         await assertPublicUrl(u)

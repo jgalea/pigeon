@@ -19,8 +19,13 @@ export interface Config {
   mediaAutoDownload: boolean
   logLevel: string
   webhookSecret?: string
+  // Server-side fetching of caller-supplied urls. Both off unless opted in.
+  allowUrlMedia: boolean
+  allowWebhooks: boolean
   guard: SendGuardConfig
 }
+
+const on = (v: string | undefined) => ['1', 'true', 'yes', 'on'].includes((v ?? '').trim().toLowerCase())
 
 export function loadConfig(env = process.env): Config {
   const apiKey = env.WA_API_KEY
@@ -35,6 +40,8 @@ export function loadConfig(env = process.env): Config {
     mediaAutoDownload: (env.WA_MEDIA_AUTODOWNLOAD ?? 'on') !== 'off',
     logLevel: env.WA_LOG_LEVEL ?? 'info',
     webhookSecret: env.WA_WEBHOOK_SECRET || undefined,
+    allowUrlMedia: on(env.PIGEON_ALLOW_URL_MEDIA),
+    allowWebhooks: on(env.PIGEON_ALLOW_WEBHOOKS),
     guard: {
       enabled: (env.WA_SEND_GUARD ?? 'on') !== 'off',
       postConnectCooldownMs: Number(env.WA_GUARD_POST_CONNECT_MS ?? 120_000),

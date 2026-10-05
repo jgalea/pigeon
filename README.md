@@ -111,7 +111,11 @@ Flatter endpoints with the session in the body: `sendText`, `sendImage`, `sendFi
 
 Media takes `{data}` (base64) or `{url}` (Pigeon fetches it server-side). Chat ids are `<number>@s.whatsapp.net` for people and `<id>@g.us` for groups.
 
-URLs Pigeon fetches itself (media `{url}`, group pictures, webhook targets) must be public `http` or `https` without credentials. The host is resolved before connecting and refused if any address is loopback, private (RFC 1918), CGNAT, link-local, ULA, multicast, the Docker host, or an IPv6 form that embeds one of those (mapped, NAT64, 6to4); the connection is then made to the address that was checked, not to a fresh DNS answer. Redirects are checked hop by hop (3 at most), downloads are capped at 64 MB and time out after 30 s. Webhook URLs are checked when set with `PUT /v1/sessions/:name/webhooks`, which answers 400 for a rejected one.
+### Server-side URL fetching (off by default)
+
+Pigeon does not fetch caller-supplied URLs unless you opt in. With `PIGEON_ALLOW_URL_MEDIA` unset, a media `{url}` (messages, group pictures, status media) is refused with a message telling the caller to download the file first and send it as `{data}` or, over MCP, by `path`. With `PIGEON_ALLOW_WEBHOOKS` unset, `PUT /v1/sessions/:name/webhooks` with a non-empty list answers 400 (clearing the list still works). Enabling either accepts residual SSRF risk: the gateway will open outbound connections to addresses chosen by whoever holds the API key.
+
+When enabled, a URL must be public `http` or `https` without credentials. The host is resolved (5 s limit, at most 16 addresses) and refused if any address is loopback, private (RFC 1918), CGNAT, link-local, ULA, multicast, the Docker host, or an IPv6 form that embeds one of those (mapped, NAT64, 6to4, Teredo); the connection is then made to the address that was checked, not to a fresh DNS answer, with the socket dropped after 10 s idle and 30 s in total. Media redirects are checked hop by hop (3 at most), bodies are streamed under a 64 MB cap and the connection is torn down when a body goes over it. Webhook deliveries go through the same pinned connection on every attempt, do not follow redirects, time out after 10 s and discard the response body.
 
 ## MCP server
 
@@ -125,7 +129,7 @@ Text written by other WhatsApp users (message bodies, captions, chat and group n
 
 Recipients must be one bare phone number or one JID ending in `@s.whatsapp.net`, `@lid` or `@g.us`. Newsletters, `status@broadcast` and strings holding several numbers are refused.
 
-`send_media` with a local `path` only reads from `~/Downloads`, `~/code/artifacts`, the Pigeon media folder and any folders listed in `PIGEON_UPLOAD_DIRS` (comma-separated). Symlinks are resolved first, dotfiles and dot-directories, the data folder, `.env` and `~/.ssh` are always refused, and files are capped at 48 MB. `download_media` writes only into `~/Downloads/pigeon` (or `PIGEON_DOWNLOAD_DIR`), names the file after the sender's suggestion with any directory part and leading dots removed, and never overwrites: a clash gets a ` (n)` suffix.
+`send_media` with a `url` only works when the gateway runs with `PIGEON_ALLOW_URL_MEDIA=1`; otherwise download the file first and send it by `path`. `send_media` with a local `path` only reads from `~/Downloads`, `~/code/artifacts`, the Pigeon media folder and any folders listed in `PIGEON_UPLOAD_DIRS` (comma-separated). Symlinks are resolved first, dotfiles and dot-directories, the data folder, `.env` and `~/.ssh` are always refused, and files are capped at 48 MB. `download_media` writes only into `~/Downloads/pigeon` (or `PIGEON_DOWNLOAD_DIR`), names the file after the sender's suggestion with any directory part and leading dots removed, and never overwrites: a clash gets a ` (n)` suffix.
 
 Register it with your MCP client, e.g. in a `.mcp.json`:
 
@@ -210,6 +214,8 @@ The `docker-compose.yml` passes each guard variable through from `.env` with the
 | `WA_MEDIA_LIFETIME_DAYS` | `180` | media cleanup window |
 | `WA_LOG_LEVEL` | `info` | pino log level |
 | `WA_WEBHOOK_SECRET` | (unset) | if set, sign webhooks with an `x-pigeon-signature` HMAC |
+| `PIGEON_ALLOW_URL_MEDIA` | `0` | opt in to fetching media from caller-supplied urls (accepts residual SSRF risk) |
+| `PIGEON_ALLOW_WEBHOOKS` | `0` | opt in to webhook delivery (accepts residual SSRF risk) |
 | `WA_API_URL` | `http://127.0.0.1:4000` | Pigeon base URL (MCP server only) |
 | `WA_SESSION` | `default` | session the MCP server operates on |
 | `WA_MCP_READONLY` | `false` | MCP server only; when true, send tools draft instead of sending |

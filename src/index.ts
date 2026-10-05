@@ -8,6 +8,7 @@ import { SendGuard } from './core/sendGuard.js'
 import { MediaService } from './core/mediaService.js'
 import { WebhookDispatcher } from './core/webhookDispatcher.js'
 import { WaService } from './core/waService.js'
+import { postWebhook } from './core/safeUrl.js'
 import { buildServer } from './http/server.js'
 
 const config = loadConfig()
@@ -15,7 +16,7 @@ const logger = makeLogger(config.logLevel)
 const db = openDb(config.dataDir)
 
 const history = new HistoryStore(db)
-const media = new MediaService(config.mediaDir, config.mediaLifetimeDays, logger)
+const media = new MediaService(config.mediaDir, config.mediaLifetimeDays, logger, { allowUrl: config.allowUrlMedia })
 const sessions = new SessionManager(
   db,
   history,
@@ -26,7 +27,7 @@ const sessions = new SessionManager(
 const guard = new SendGuard(config.guard)
 const messages = new MessageService(sessions, history, media, guard)
 const wa = new WaService(sessions, media, guard)
-const webhooks = new WebhookDispatcher(logger, fetch, {
+const webhooks = new WebhookDispatcher(logger, postWebhook, {
   retries: 3,
   baseDelayMs: 500,
   secret: config.webhookSecret,
