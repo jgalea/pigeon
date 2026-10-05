@@ -8,6 +8,7 @@ const cfg = (over: Partial<SendGuardConfig> = {}): SendGuardConfig => ({
   coldMinGapMs: 60_000,
   coldMaxPerHour: 5,
   coldMaxPerDay: 20,
+  participantsMaxPerHour: 20,
   ...over,
 })
 

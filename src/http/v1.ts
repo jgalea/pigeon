@@ -5,6 +5,7 @@ import { basename } from 'node:path'
 import type { Core } from './server.js'
 import type { OutgoingMessage, PresenceType } from '../core/types.js'
 import { normalizeJid } from '../core/jid.js'
+import { assertPublicUrl } from '../core/safeUrl.js'
 
 export async function registerV1(app: FastifyInstance, core: Core) {
   app.get('/v1/sessions', async () => core.sessions.list())
@@ -284,9 +285,18 @@ export async function registerV1(app: FastifyInstance, core: Core) {
     return core.wa.requestPairingCode(name, (req.body as { phone: string }).phone)
   })
 
-  app.put('/v1/sessions/:name/webhooks', async (req) => {
+  // Webhook targets are fetched from inside the container, so they get the
+  // same public-address check as media URLs.
+  app.put('/v1/sessions/:name/webhooks', async (req, reply) => {
     const name = (req.params as { name: string }).name
     const urls = (req.body as { urls?: string[] }).urls ?? []
+    for (const u of urls) {
+      try {
+        await assertPublicUrl(u)
+      } catch (e) {
+        return reply.code(400).send({ error: `webhook url rejected: ${(e as Error).message}` })
+      }
+    }
     core.webhooks.setUrls(name, urls)
     return { urls: core.webhooks.getUrls(name) }
   })

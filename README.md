@@ -111,6 +111,8 @@ Flatter endpoints with the session in the body: `sendText`, `sendImage`, `sendFi
 
 Media takes `{data}` (base64) or `{url}` (Pigeon fetches it server-side). Chat ids are `<number>@s.whatsapp.net` for people and `<id>@g.us` for groups.
 
+URLs Pigeon fetches itself (media `{url}`, group pictures, webhook targets) must be public `http` or `https`. The host is resolved before connecting and refused if any address is loopback, private (RFC 1918), CGNAT, link-local, ULA, multicast or the Docker host; redirects are checked hop by hop (3 at most), downloads are capped at 64 MB and time out after 30 s. Webhook URLs are checked when set with `PUT /v1/sessions/:name/webhooks`, which answers 400 for a rejected one.
+
 ## MCP server
 
 Pigeon ships an MCP (Model Context Protocol) server so AI tools like Claude Code can use WhatsApp directly. It runs over stdio and talks to a running Pigeon instance via the REST API.
@@ -118,6 +120,12 @@ Pigeon ships an MCP (Model Context Protocol) server so AI tools like Claude Code
 Tools: `session_status`, `list_chats`, `read_messages`, `read_contact`, `send_message`, `send_media`, `delete_message`, `mark_read`, `check_contact`, `list_groups`, `group_info`, `list_communities`, `list_community_groups`, `create_group`, `add_participants`.
 
 `read_contact` merges a person's messages across their real number and any privacy-masked `@lid` chat, since WhatsApp can split one contact across two chats. `create_group` and `add_participants` manage group membership. `group_info`, `list_communities` and `list_community_groups` are read-only: they return a group's description and posting rules, and a community's subgroups whether or not you have joined them. `read_messages` and `read_contact` skip system events (member joins and leaves, deletions, setting changes) unless `includeSystem` is true.
+
+Text written by other WhatsApp users (message bodies, captions, chat and group names, descriptions, file names) comes back fenced between `[UNTRUSTED_<nonce>]` markers with a fresh nonce per response, with zero-width and bidirectional control characters stripped and fence lookalikes inside the content defused. The server instructions tell the model to treat fenced text as data, never as instructions.
+
+Recipients must be one bare phone number or one JID ending in `@s.whatsapp.net`, `@lid` or `@g.us`. Newsletters, `status@broadcast` and strings holding several numbers are refused.
+
+`send_media` with a local `path` only reads from `~/Downloads`, `~/code/artifacts`, the Pigeon media folder and any folders listed in `PIGEON_UPLOAD_DIRS` (comma-separated). Symlinks are resolved first, dotfiles and dot-directories, the data folder, `.env` and `~/.ssh` are always refused, and files are capped at 48 MB. `download_media` writes only into `~/Downloads/pigeon` (or `PIGEON_DOWNLOAD_DIR`), names the file after the sender's suggestion with any directory part and leading dots removed, and never overwrites: a clash gets a ` (n)` suffix.
 
 Register it with your MCP client, e.g. in a `.mcp.json`:
 
@@ -132,11 +140,11 @@ Register it with your MCP client, e.g. in a `.mcp.json`:
 }
 ```
 
-It reads `WA_API_KEY` (and optional `WA_API_URL`, `WA_SESSION`) from the environment, falling back to the `.env` in the project root. Build first with `npm run build`.
+It reads `WA_API_KEY` (and optional `WA_API_URL`, `WA_SESSION`, `PIGEON_UPLOAD_DIRS`, `PIGEON_DOWNLOAD_DIR`) from the environment, falling back to the `.env` in the project root. Build first with `npm run build`.
 
 ### Draft-only mode
 
-Set `WA_MCP_READONLY=true` to run the MCP server in draft-only mode. `send_message` and `send_media` stop hitting WhatsApp: instead of sending, they return the composed draft (`sent: false`) for you to review. The read tools (`session_status`, `list_chats`, `read_messages`, `check_contact`) keep working. Use this when you want an assistant to draft replies but never send on its own. There's no per-call override, so it's a hard guarantee for that session.
+Set `WA_MCP_READONLY=true` to run the MCP server in draft-only mode. `send_message` and `send_media` stop hitting WhatsApp: instead of sending, they return the composed draft (`sent: false`) for you to review. `delete_message`, `create_group`, `add_participants` and `mark_read` (which sends a read receipt) are held back the same way. The read tools (`session_status`, `list_chats`, `read_messages`, `check_contact`) keep working, and so does `download_media`, since it sends nothing and only writes inside the download folder. Use this when you want an assistant to draft replies but never send on its own. There's no per-call override, so it's a hard guarantee for that session.
 
 ### Anti-spam guard
 
@@ -153,6 +161,7 @@ The limits and their defaults:
 | `WA_GUARD_COLD_MIN_GAP_MS` | `60000` (1 min) | minimum gap between two cold sends |
 | `WA_GUARD_COLD_PER_HOUR` | `5` | max cold sends per rolling hour |
 | `WA_GUARD_COLD_PER_DAY` | `20` | max cold sends per rolling day |
+| `WA_GUARD_PARTICIPANTS_PER_HOUR` | `20` | max distinct numbers added to groups per rolling hour, across `create_group` and participant adds |
 
 Two ways to override on a per-send basis:
 
@@ -204,11 +213,14 @@ The `docker-compose.yml` passes each guard variable through from `.env` with the
 | `WA_API_URL` | `http://127.0.0.1:4000` | Pigeon base URL (MCP server only) |
 | `WA_SESSION` | `default` | session the MCP server operates on |
 | `WA_MCP_READONLY` | `false` | MCP server only; when true, send tools draft instead of sending |
+| `PIGEON_UPLOAD_DIRS` | (unset) | MCP server only; extra comma-separated folders `send_media` may read local files from |
+| `PIGEON_DOWNLOAD_DIR` | `~/Downloads/pigeon` | MCP server only; the one folder `download_media` saves into |
 | `WA_SEND_GUARD` | `on` | anti-spam guard on cold (first-contact) sends; `off` to disable |
 | `WA_GUARD_POST_CONNECT_MS` | `120000` | pause cold sends for this long after the session links |
 | `WA_GUARD_COLD_MIN_GAP_MS` | `60000` | minimum gap between two cold sends |
 | `WA_GUARD_COLD_PER_HOUR` | `5` | max cold sends per rolling hour |
 | `WA_GUARD_COLD_PER_DAY` | `20` | max cold sends per rolling day |
+| `WA_GUARD_PARTICIPANTS_PER_HOUR` | `20` | max distinct numbers added to groups (created or joined) per rolling hour |
 
 ## How it works
 

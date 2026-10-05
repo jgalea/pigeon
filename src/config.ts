@@ -6,6 +6,7 @@ export interface SendGuardConfig {
   coldMinGapMs: number
   coldMaxPerHour: number
   coldMaxPerDay: number
+  participantsMaxPerHour: number
 }
 
 export interface Config {
@@ -40,6 +41,7 @@ export function loadConfig(env = process.env): Config {
       coldMinGapMs: Number(env.WA_GUARD_COLD_MIN_GAP_MS ?? 60_000),
       coldMaxPerHour: Number(env.WA_GUARD_COLD_PER_HOUR ?? 5),
       coldMaxPerDay: Number(env.WA_GUARD_COLD_PER_DAY ?? 20),
+      participantsMaxPerHour: Number(env.WA_GUARD_PARTICIPANTS_PER_HOUR ?? 20),
     },
   }
 }

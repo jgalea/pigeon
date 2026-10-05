@@ -1,3 +1,4 @@
+import { timingSafeEqual } from 'node:crypto'
 import Fastify from 'fastify'
 import type { Config } from '../config.js'
 import type { Logger } from '../logger.js'
@@ -21,6 +22,13 @@ export interface Core {
   wa: WaService
 }
 
+export function apiKeyMatches(given: unknown, expected: string): boolean {
+  if (typeof given !== 'string') return false
+  const a = Buffer.from(given)
+  const b = Buffer.from(expected)
+  return a.length === b.length && timingSafeEqual(a, b)
+}
+
 export async function buildServer(core: Core) {
   const app = Fastify({ logger: false, bodyLimit: 64 * 1024 * 1024 })
 
@@ -28,7 +36,7 @@ export async function buildServer(core: Core) {
 
   app.addHook('onRequest', async (req, reply) => {
     if (req.url.startsWith('/api/health')) return
-    if (req.headers['x-api-key'] !== core.config.apiKey) {
+    if (!apiKeyMatches(req.headers['x-api-key'], core.config.apiKey)) {
       reply.code(401).send({ error: 'unauthorized' })
     }
   })

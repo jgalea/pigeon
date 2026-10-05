@@ -25,7 +25,7 @@ const sessions = new SessionManager(
 )
 const guard = new SendGuard(config.guard)
 const messages = new MessageService(sessions, history, media, guard)
-const wa = new WaService(sessions, media)
+const wa = new WaService(sessions, media, guard)
 const webhooks = new WebhookDispatcher(logger, fetch, {
   retries: 3,
   baseDelayMs: 500,

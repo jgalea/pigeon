@@ -20,6 +20,8 @@ const DAY = 86_400_000
 // cold sends. Warm replies and group messages are never gated.
 export class SendGuard {
   private coldSends = new Map<string, number[]>()
+  // Per session: each number added to a group (created or joined) and when.
+  private added = new Map<string, Map<string, number>>()
 
   constructor(private cfg: SendGuardConfig) {}
 
@@ -63,5 +65,33 @@ export class SendGuard {
     const recent = (this.coldSends.get(session) ?? []).filter((t) => now - t < DAY)
     recent.push(now)
     this.coldSends.set(session, recent)
+  }
+
+  private recentlyAdded(session: string, now: number): Map<string, number> {
+    const all = this.added.get(session) ?? new Map<string, number>()
+    const recent = new Map([...all].filter(([, t]) => now - t < HOUR))
+    this.added.set(session, recent)
+    return recent
+  }
+
+  // Adding strangers to groups is the other bulk-contact path WhatsApp flags.
+  // Caps the number of distinct numbers added per rolling hour; re-adding a
+  // number already counted in the window is free.
+  checkParticipants(session: string, jids: string[], now: number): GuardVerdict {
+    if (!this.cfg.enabled) return { ok: true }
+    const recent = this.recentlyAdded(session, now)
+    const fresh = new Set(jids.filter((j) => !recent.has(j)))
+    if (recent.size + fresh.size > this.cfg.participantsMaxPerHour) {
+      return {
+        ok: false,
+        reason: `adding ${fresh.size} new participant(s) would pass the hourly cap of ${this.cfg.participantsMaxPerHour} people added to groups (${recent.size} already this hour)`,
+      }
+    }
+    return { ok: true }
+  }
+
+  recordParticipants(session: string, jids: string[], now: number): void {
+    const recent = this.recentlyAdded(session, now)
+    for (const j of jids) recent.set(j, now)
   }
 }

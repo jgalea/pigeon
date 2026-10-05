@@ -1,5 +1,6 @@
 import type { SessionManager } from './sessionManager.js'
 import type { MediaService } from './mediaService.js'
+import type { SendGuard } from './sendGuard.js'
 import type { PresenceType } from './types.js'
 import { normalizeJid as toJid } from './jid.js'
 import { summarizeGroup, type GroupSummary } from './groups.js'
@@ -41,6 +42,7 @@ export class WaService {
   constructor(
     private sessions: SessionManager,
     private media: MediaService,
+    private guard?: SendGuard,
   ) {}
 
   private sock(session: string) {
@@ -128,12 +130,23 @@ export class WaService {
     return { success: true }
   }
 
+  // Group creation and member adds go through the same hourly cap as cold
+  // sends do, since both put this number in front of people who never wrote
+  // to it.
+  private guardParticipants(session: string, jids: string[]) {
+    if (!this.guard) return
+    const now = Date.now()
+    const verdict = this.guard.checkParticipants(session, jids, now)
+    if (!verdict.ok) throw new Error(`blocked by anti-spam guard: ${verdict.reason}`)
+    this.guard.recordParticipants(session, jids, now)
+  }
+
   // --- groups ---
   async groupCreate(session: string, subject: string, participants: string[]) {
-    const meta = (await this.sock(session).groupCreate(
-      subject as never,
-      participants.map(toJid) as never,
-    )) as { id?: string }
+    const sock = this.sock(session)
+    const jids = participants.map(toJid)
+    this.guardParticipants(session, jids)
+    const meta = (await sock.groupCreate(subject as never, jids as never)) as { id?: string }
     return { id: meta?.id, metadata: meta }
   }
   async groupLeave(session: string, groupId: string) {
@@ -144,11 +157,10 @@ export class WaService {
     return this.sock(session).groupMetadata(groupId as never)
   }
   async groupParticipants(session: string, groupId: string, participants: string[], action: ParticipantAction) {
-    return this.sock(session).groupParticipantsUpdate(
-      groupId as never,
-      participants.map(toJid) as never,
-      action as never,
-    )
+    const sock = this.sock(session)
+    const jids = participants.map(toJid)
+    if (action === 'add') this.guardParticipants(session, jids)
+    return sock.groupParticipantsUpdate(groupId as never, jids as never, action as never)
   }
   async groupUpdateSubject(session: string, groupId: string, subject: string) {
     await this.sock(session).groupUpdateSubject(groupId as never, subject as never)

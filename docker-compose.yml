@@ -18,6 +18,7 @@ services:
       - WA_GUARD_COLD_MIN_GAP_MS=${WA_GUARD_COLD_MIN_GAP_MS:-60000}
       - WA_GUARD_COLD_PER_HOUR=${WA_GUARD_COLD_PER_HOUR:-5}
       - WA_GUARD_COLD_PER_DAY=${WA_GUARD_COLD_PER_DAY:-20}
+      - WA_GUARD_PARTICIPANTS_PER_HOUR=${WA_GUARD_PARTICIPANTS_PER_HOUR:-20}
     volumes:
       - ./data:/app/data
       - ./media:/app/media
