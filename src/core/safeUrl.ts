@@ -71,7 +71,7 @@ function parseIPv4(ip: string): number[] | undefined {
 }
 
 // 16 bytes, or undefined when not an IPv6 literal. Brackets and zone ids are
-// dropped first; a dotted-quad tail (::ffff:1.2.3.4) is folded into the last
+// dropped first; a dotted-quad tail (::ffff:a.b.c.d) is folded into the last
 // two groups so every form ends up as the same bytes.
 function parseIPv6(ip: string): number[] | undefined {
   const bare = ip.replace(/^\[|\]$/g, '').split('%')[0]
