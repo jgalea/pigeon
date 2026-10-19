@@ -17,6 +17,7 @@ function coreMock(over: { allowWebhooks?: boolean } = { allowWebhooks: true }): 
     media: {} as never,
     webhooks: new WebhookDispatcher(logger, vi.fn() as never),
     wa: {} as never,
+    schedule: {} as never,
   }
 }
 

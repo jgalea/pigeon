@@ -46,6 +46,19 @@ export function openDb(dataDir: string): DB {
       next_retry_at INTEGER,
       created_at INTEGER NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS scheduled_messages (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      session TEXT NOT NULL,
+      chat_id TEXT NOT NULL,
+      text TEXT NOT NULL,
+      send_at INTEGER NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending',
+      created_at INTEGER NOT NULL,
+      sent_at INTEGER,
+      message_id TEXT,
+      error TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_scheduled_due ON scheduled_messages (status, send_at);
   `)
   return db
 }

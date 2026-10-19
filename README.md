@@ -85,6 +85,9 @@ Every route except `/api/health` requires `X-Api-Key: <WA_API_KEY>`. There are t
 | POST | `/v1/sessions/:name/delete` | `{chatId, msgId, fromMe?}` |
 | POST | `/v1/sessions/:name/forward` | `{toChatId, fromChatId, msgId}` |
 | POST | `/v1/sessions/:name/presence` | `{type, chatId?}` |
+| POST | `/v1/sessions/:name/scheduled` | schedule a text `{chatId, text, sendAt}`; `sendAt` is ISO-8601 with an offset or `Z`, or epoch ms, and must be in the future |
+| GET | `/v1/sessions/:name/scheduled?status=&limit=` | scheduled messages, soonest first; status is `pending`, `sending`, `sent`, `failed` or `cancelled` |
+| DELETE | `/v1/sessions/:name/scheduled/:id` | cancel; 409 unless still `pending` |
 | GET | `/v1/sessions/:name/chats` | recent chats |
 | GET | `/v1/sessions/:name/chats/:chatId/messages?limit=&includeSystem=` | history; system events (joins, leaves, deletions) have type `system` and a short body, pass `includeSystem=false` to drop them |
 | GET | `/v1/sessions/:name/contacts/check?phone=` | is on WhatsApp |
@@ -105,6 +108,10 @@ Every route except `/api/health` requires `X-Api-Key: <WA_API_KEY>`. There are t
 | PUT | `/v1/sessions/:name/webhooks` | `{urls:[...]}` |
 | GET | `/v1/events` | Server-Sent Events stream |
 
+### Scheduled messages
+
+The gateway keeps scheduled texts in its SQLite database and sends them itself, so they go out with no client connected. It checks every 20 seconds and sends through the same path and anti-spam guard as `POST .../messages`. A message whose session isn't `WORKING` is retried for 30 minutes after its time, then marked `failed`; anything further overdue (after a long outage, say) is marked `failed` with a "missed" error rather than sent late. A message that was mid-send when the gateway stopped is marked `failed` too, since delivery is unknown.
+
 ### `/api`
 
 Flatter endpoints with the session in the body: `sendText`, `sendImage`, `sendFile`, `sendVoice`, `sendVideo`, `sendLocation`, `sendContact`, `sendPoll`, `sendSeen`, `reaction`, `startTyping`/`stopTyping`, session lifecycle, `:session/auth/qr`, `:session/chats/:chatId/messages`, `:session/groups`, `contacts/check-exists`.
@@ -121,7 +128,9 @@ When enabled, a URL must be public `http` or `https` without credentials. The ho
 
 Pigeon ships an MCP (Model Context Protocol) server so AI tools like Claude Code can use WhatsApp directly. It runs over stdio and talks to a running Pigeon instance via the REST API.
 
-Tools: `session_status`, `list_chats`, `read_messages`, `read_contact`, `send_message`, `send_media`, `delete_message`, `mark_read`, `check_contact`, `list_groups`, `group_info`, `list_communities`, `list_community_groups`, `create_group`, `add_participants`.
+Tools: `session_status`, `list_chats`, `read_messages`, `read_contact`, `send_message`, `send_media`, `delete_message`, `mark_read`, `check_contact`, `list_groups`, `group_info`, `list_communities`, `list_community_groups`, `create_group`, `add_participants`, `schedule_message`, `list_scheduled`, `cancel_scheduled`.
+
+`schedule_message` takes `chatId`, `text` and `sendAt`, an ISO-8601 time that must carry an explicit offset or `Z` (naive times and past times are rejected). `list_scheduled` takes an optional `status`; `cancel_scheduled` takes an `id` and only works on pending messages. In draft-only mode `schedule_message` returns the draft without scheduling it.
 
 `read_contact` merges a person's messages across their real number and any privacy-masked `@lid` chat, since WhatsApp can split one contact across two chats. `create_group` and `add_participants` manage group membership. `group_info`, `list_communities` and `list_community_groups` are read-only: they return a group's description and posting rules, and a community's subgroups whether or not you have joined them. `read_messages` and `read_contact` skip system events (member joins and leaves, deletions, setting changes) unless `includeSystem` is true.
 

@@ -8,6 +8,7 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { z } from 'zod'
 import { summarizeGroup } from './core/groups.js'
 import { parseRecipient } from './core/recipients.js'
+import { parseSendAt } from './core/sendAt.js'
 import { ResponseFence } from './core/untrusted.js'
 import { downloadDir, readUpload, sanitizeFilename, saveDownload, uploadPolicy, type UploadPolicy } from './mcpFiles.js'
 
@@ -112,6 +113,7 @@ export function buildServer(cfg: McpConfig, files: McpFiles = loadMcpFiles()): M
 
   const MESSAGE_TEXT = ['body', 'caption']
   const GROUP_TEXT = ['name', 'description']
+  const SCHEDULED_TEXT = ['text']
 
   const presentMessage = (fence: ResponseFence, { raw: _raw, session: _session, ...m }: Record<string, unknown>) =>
     fence.fields(m, MESSAGE_TEXT)
@@ -330,6 +332,70 @@ export function buildServer(cfg: McpConfig, files: McpFiles = loadMcpFiles()): M
         return asResult({ sent: false, mode: 'draft-only', draft: { to, type: 'text', text }, note: notSent })
       }
       return asResult(await api('POST', `/v1/sessions/${s}/messages`, { chatId: to, type: 'text', text }))
+    },
+  )
+
+  server.registerTool(
+    'schedule_message',
+    {
+      description:
+        'Schedule a WhatsApp text message for later. The gateway sends it at the due time, even with no Claude session open. sendAt is ISO-8601 and MUST carry an explicit offset or Z (e.g. 2026-10-20T07:30:00+01:00 or 2026-10-20T06:30:00Z); times without one are rejected, as are times in the past. Returns the scheduled entry with its id; use list_scheduled to review it and cancel_scheduled to withdraw it.' +
+        draftSuffix,
+      inputSchema: {
+        chatId: z.string().describe('Phone number or JID of the recipient'),
+        text: z.string().min(1).describe('Message text'),
+        sendAt: z.string().describe('When to send, ISO-8601 with an explicit offset or Z'),
+      },
+    },
+    async ({ chatId, text, sendAt }) => {
+      const to = parseRecipient(chatId)
+      const at = parseSendAt(sendAt)
+      if (cfg.readOnly) {
+        return asResult({
+          scheduled: false,
+          mode: 'draft-only',
+          draft: { to, type: 'text', text, sendAt: new Date(at).toISOString() },
+          note: notSent,
+        })
+      }
+      const fence = new ResponseFence()
+      const row = (await api('POST', `/v1/sessions/${s}/scheduled`, { chatId: to, text, sendAt: at })) as Record<string, unknown>
+      return asFenced(fence.fields(row, SCHEDULED_TEXT), fence)
+    },
+  )
+
+  server.registerTool(
+    'list_scheduled',
+    {
+      description:
+        'List scheduled messages, soonest first. Optionally filter by status: pending, sending, sent, failed or cancelled. Times are UTC epoch milliseconds.' +
+        UNTRUSTED_NOTE,
+      inputSchema: {
+        status: z.enum(['pending', 'sending', 'sent', 'failed', 'cancelled']).optional().describe('Only entries with this status'),
+      },
+    },
+    async ({ status }) => {
+      const rows = (await api('GET', `/v1/sessions/${s}/scheduled${status ? `?status=${status}` : ''}`)) as Array<Record<string, unknown>>
+      const fence = new ResponseFence()
+      return asFenced(
+        rows.map((r) => fence.fields(r, SCHEDULED_TEXT)),
+        fence,
+      )
+    },
+  )
+
+  server.registerTool(
+    'cancel_scheduled',
+    {
+      description: 'Cancel a scheduled message by id. Only messages still pending can be cancelled.',
+      inputSchema: {
+        id: z.number().int().positive().describe('Id of the scheduled message'),
+      },
+    },
+    async ({ id }) => {
+      const fence = new ResponseFence()
+      const row = (await api('DELETE', `/v1/sessions/${s}/scheduled/${id}`)) as Record<string, unknown>
+      return asFenced(fence.fields(row, SCHEDULED_TEXT), fence)
     },
   )
 

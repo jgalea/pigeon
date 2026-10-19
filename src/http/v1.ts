@@ -6,6 +6,9 @@ import type { Core } from './server.js'
 import type { OutgoingMessage, PresenceType } from '../core/types.js'
 import { normalizeJid } from '../core/jid.js'
 import { assertPublicUrl } from '../core/safeUrl.js'
+import { parseRecipient } from '../core/recipients.js'
+import { parseSendAt } from '../core/sendAt.js'
+import { SCHEDULE_STATUSES, type ScheduleStatus } from '../db/scheduleStore.js'
 
 export async function registerV1(app: FastifyInstance, core: Core) {
   app.get('/v1/sessions', async () => core.sessions.list())
@@ -37,6 +40,40 @@ export async function registerV1(app: FastifyInstance, core: Core) {
   app.post('/v1/sessions/:name/messages', async (req) => {
     const name = (req.params as { name: string }).name
     return core.messages.send(name, req.body as OutgoingMessage)
+  })
+
+  app.post('/v1/sessions/:name/scheduled', async (req, reply) => {
+    const name = (req.params as { name: string }).name
+    const b = (req.body ?? {}) as { chatId?: string; text?: string; sendAt?: unknown }
+    if (typeof b.text !== 'string' || !b.text.trim()) return reply.code(400).send({ error: 'text is required' })
+    try {
+      const chatId = normalizeJid(parseRecipient(b.chatId ?? ''))
+      const sendAt = parseSendAt(b.sendAt)
+      return core.schedule.create(name, chatId, b.text, sendAt)
+    } catch (e) {
+      return reply.code(400).send({ error: (e as Error).message })
+    }
+  })
+
+  app.get('/v1/sessions/:name/scheduled', async (req, reply) => {
+    const name = (req.params as { name: string }).name
+    const q = req.query as { status?: string; limit?: string }
+    if (q.status && !SCHEDULE_STATUSES.includes(q.status as ScheduleStatus)) {
+      return reply.code(400).send({ error: `status must be one of ${SCHEDULE_STATUSES.join(', ')}` })
+    }
+    const limit = Math.min(Math.max(Number(q.limit ?? 100) || 100, 1), 1000)
+    return core.schedule.list(name, q.status as ScheduleStatus | undefined, limit)
+  })
+
+  app.delete('/v1/sessions/:name/scheduled/:id', async (req, reply) => {
+    const p = req.params as { name: string; id: string }
+    const id = Number(p.id)
+    const row = Number.isInteger(id) ? core.schedule.get(id) : undefined
+    if (!row || row.session !== p.name) return reply.code(404).send({ error: 'scheduled message not found' })
+    if (!core.schedule.cancel(p.name, id)) {
+      return reply.code(409).send({ error: `only pending messages can be cancelled; this one is ${core.schedule.get(id)!.status}` })
+    }
+    return core.schedule.get(id)
   })
 
   app.get('/v1/sessions/:name/chats', async (req) => {

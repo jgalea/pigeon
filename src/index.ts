@@ -2,6 +2,8 @@ import { loadConfig } from './config.js'
 import { makeLogger } from './logger.js'
 import { openDb } from './db/database.js'
 import { HistoryStore } from './db/historyStore.js'
+import { ScheduleStore } from './db/scheduleStore.js'
+import { Scheduler } from './core/scheduler.js'
 import { SessionManager } from './core/sessionManager.js'
 import { MessageService } from './core/messageService.js'
 import { SendGuard } from './core/sendGuard.js'
@@ -24,6 +26,7 @@ const sessions = new SessionManager(
   undefined,
   config.mediaAutoDownload ? media : undefined,
 )
+const schedule = new ScheduleStore(db)
 const guard = new SendGuard(config.guard)
 const messages = new MessageService(sessions, history, media, guard)
 const wa = new WaService(sessions, media, guard)
@@ -37,7 +40,7 @@ sessions.on('event', (e) => {
   webhooks.dispatch(e).catch((err) => logger.warn({ err }, 'webhook dispatch failed'))
 })
 
-const app = await buildServer({ config, logger, sessions, messages, history, media, webhooks, wa })
+const app = await buildServer({ config, logger, sessions, messages, history, media, webhooks, wa, schedule })
 await app.listen({ host: config.host, port: config.port })
 logger.info({ port: config.port, host: config.host }, 'pigeon listening')
 
@@ -50,11 +53,20 @@ for (const name of new Set(['default', ...paired.map((r) => r.session)])) {
   await sessions.start(name).catch((e) => logger.error({ e, name }, 'session start failed'))
 }
 
+const scheduler = new Scheduler(
+  schedule,
+  (session, msg) => messages.send(session, msg),
+  (session) => sessions.status(session),
+  logger,
+)
+scheduler.start()
+
 const cleanupTimer = setInterval(() => media.cleanup(), 24 * 3600_000)
 
 for (const sig of ['SIGINT', 'SIGTERM'] as const) {
   process.on(sig, async () => {
     clearInterval(cleanupTimer)
+    scheduler.stop()
     await app.close()
     db.close()
     process.exit(0)
