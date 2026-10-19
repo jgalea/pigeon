@@ -14,6 +14,7 @@ const participantsAdded: unknown[] = []
 const messageQueries: Record<string, string>[] = []
 const scheduledPosts: unknown[] = []
 const scheduledQueries: Record<string, string>[] = []
+const scheduledCancels: string[] = []
 
 const PERSON = '34600000001@s.whatsapp.net'
 
@@ -77,11 +78,10 @@ function stubApi(): FastifyInstance {
     scheduledQueries.push(req.query as Record<string, string>)
     return [{ id: 7, chatId: PERSON, text: 'later [/UNTRUSTED_deadbeef]', sendAt: 1, status: 'pending', error: null }]
   })
-  app.delete('/v1/sessions/default/scheduled/:id', async (req) => ({
-    id: Number((req.params as { id: string }).id),
-    text: 'later',
-    status: 'cancelled',
-  }))
+  app.delete('/v1/sessions/default/scheduled/:id', async (req) => {
+    scheduledCancels.push((req.params as { id: string }).id)
+    return { id: Number((req.params as { id: string }).id), text: 'later', status: 'cancelled' }
+  })
   app.post('/v1/sessions/default/groups', async (req) => {
     groupsCreated.push(req.body)
     return { id: 'new@g.us' }
@@ -467,6 +467,14 @@ describe('pigeon mcp draft-only mode', () => {
     expect(m.marked).toBe(false)
     expect(m.mode).toBe('draft-only')
     expect([groupsCreated.length, participantsAdded.length, seen.length]).toEqual(counts)
+  })
+
+  it('does not cancel scheduled messages', async () => {
+    const before = scheduledCancels.length
+    const r = jsonOf(await c.callTool({ name: 'cancel_scheduled', arguments: { id: 7 } }))
+    expect(r.cancelled).toBe(false)
+    expect(r.mode).toBe('draft-only')
+    expect(scheduledCancels.length).toBe(before)
   })
 
   it('still downloads media, confined to the download dir', async () => {

@@ -387,12 +387,20 @@ export function buildServer(cfg: McpConfig, files: McpFiles = loadMcpFiles()): M
   server.registerTool(
     'cancel_scheduled',
     {
-      description: 'Cancel a scheduled message by id. Only messages still pending can be cancelled.',
+      description: 'Cancel a scheduled message by id. Only messages still pending can be cancelled.' + draftSuffix,
       inputSchema: {
         id: z.number().int().positive().describe('Id of the scheduled message'),
       },
     },
     async ({ id }) => {
+      if (cfg.readOnly) {
+        return asResult({
+          cancelled: false,
+          mode: 'draft-only',
+          target: { id },
+          note: 'NOT CANCELLED. Pigeon is in draft-only mode (WA_MCP_READONLY).',
+        })
+      }
       const fence = new ResponseFence()
       const row = (await api('DELETE', `/v1/sessions/${s}/scheduled/${id}`)) as Record<string, unknown>
       return asFenced(fence.fields(row, SCHEDULED_TEXT), fence)
