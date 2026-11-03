@@ -117,4 +117,13 @@ describe('PUT /v1/sessions/:name/webhooks', () => {
     expect(r.json()).toEqual({ urls: ['https://203.0.113.10/hook'] })
     expect(core.webhooks.getUrls('default')).toEqual(['https://203.0.113.10/hook'])
   })
+
+  it('returns the configured urls on GET', async () => {
+    const core = coreMock()
+    const app = await appWith(core)
+    expect((await app.inject({ method: 'GET', url: '/v1/sessions/default/webhooks' })).json()).toEqual({ urls: [] })
+    core.webhooks.setUrls('default', ['https://203.0.113.10/hook'])
+    const r = await app.inject({ method: 'GET', url: '/v1/sessions/default/webhooks' })
+    expect(r.json()).toEqual({ urls: ['https://203.0.113.10/hook'] })
+  })
 })

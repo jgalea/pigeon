@@ -1,5 +1,9 @@
 import { describe, it, expect, vi } from 'vitest'
 import { WebhookDispatcher } from '../src/core/webhookDispatcher.js'
+import { openDb } from '../src/db/database.js'
+import { mkdtempSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { makeLogger } from '../src/logger.js'
 
 describe('WebhookDispatcher', () => {
@@ -41,5 +45,28 @@ describe('WebhookDispatcher', () => {
     for (const call of warn.mock.calls) {
       expect((call[0] as { err: string }).err).toMatch(/private or local|not allowed/)
     }
+  })
+
+  it('restores configured urls after a restart and drops cleared ones', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'pigeon-wh-'))
+    const logger = makeLogger('silent')
+    const db = openDb(dir)
+    const first = new WebhookDispatcher(logger, vi.fn() as never, undefined, db)
+    first.setUrls('default', ['https://hook.test/a', 'https://hook.test/b'])
+    first.setUrls('other', ['https://hook.test/c'])
+    db.close()
+
+    const db2 = openDb(dir)
+    const second = new WebhookDispatcher(logger, vi.fn() as never, undefined, db2)
+    expect(second.getUrls('default')).toEqual(['https://hook.test/a', 'https://hook.test/b'])
+    expect(second.getUrls('other')).toEqual(['https://hook.test/c'])
+    second.setUrls('other', [])
+    db2.close()
+
+    const db3 = openDb(dir)
+    const third = new WebhookDispatcher(logger, vi.fn() as never, undefined, db3)
+    expect(third.getUrls('other')).toEqual([])
+    expect(third.getUrls('default')).toHaveLength(2)
+    db3.close()
   })
 })

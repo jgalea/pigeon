@@ -1,6 +1,7 @@
 import { createHmac } from 'node:crypto'
 import type { Logger } from '../logger.js'
 import type { WebhookEvent } from './types.js'
+import type { DB } from '../db/database.js'
 import { postWebhook, type RequestInitLite } from './safeUrl.js'
 
 // Deliveries go over a pinned connection to a validated public address by
@@ -18,10 +19,27 @@ export class WebhookDispatcher {
       retries: 3,
       baseDelayMs: 500,
     },
-  ) {}
+    private db?: DB,
+  ) {
+    if (!db) return
+    const rows = db.prepare('SELECT session, urls FROM webhook_urls').all() as { session: string; urls: string }[]
+    for (const r of rows) {
+      try {
+        this.urls.set(r.session, JSON.parse(r.urls))
+      } catch {
+        this.logger.warn({ session: r.session }, 'ignoring unreadable stored webhook urls')
+      }
+    }
+  }
 
   setUrls(session: string, urls: string[]) {
     this.urls.set(session, urls)
+    if (!this.db) return
+    if (urls.length === 0) this.db.prepare('DELETE FROM webhook_urls WHERE session = ?').run(session)
+    else
+      this.db
+        .prepare('INSERT INTO webhook_urls (session, urls) VALUES (?, ?) ON CONFLICT(session) DO UPDATE SET urls = excluded.urls')
+        .run(session, JSON.stringify(urls))
   }
   getUrls(session: string) {
     return this.urls.get(session) ?? []
