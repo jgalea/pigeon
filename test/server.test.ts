@@ -1,5 +1,8 @@
 import { describe, it, expect, vi } from 'vitest'
 import Fastify from 'fastify'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { apiKeyMatches, buildServer, type Core } from '../src/http/server.js'
 import { registerV1 } from '../src/http/v1.js'
 import { WebhookDispatcher } from '../src/core/webhookDispatcher.js'
@@ -54,6 +57,35 @@ describe('opt-in flags', () => {
     expect(on.allowUrlMedia).toBe(true)
     expect(on.allowWebhooks).toBe(true)
     expect(loadConfig({ WA_API_KEY: 'k', PIGEON_ALLOW_WEBHOOKS: '0' } as NodeJS.ProcessEnv).allowWebhooks).toBe(false)
+  })
+
+  it('saves inbound media by default and stops when WA_MEDIA_AUTODOWNLOAD is off', () => {
+    expect(loadConfig({ WA_API_KEY: 'k' } as NodeJS.ProcessEnv).mediaAutoDownload).toBe(true)
+    expect(loadConfig({ WA_API_KEY: 'k', WA_MEDIA_AUTODOWNLOAD: 'off' } as NodeJS.ProcessEnv).mediaAutoDownload).toBe(false)
+  })
+})
+
+describe('GET /v1/sessions/:name/chats/:chatId/messages/:msgId/media', () => {
+  it('serves the stored file without contacting WhatsApp', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'pigeon-media-'))
+    const file = join(dir, 'a.jpg')
+    writeFileSync(file, 'local-bytes')
+    const core = coreMock()
+    core.history = {
+      get: vi.fn(() => ({
+        mediaPath: file,
+        raw: { message: { imageMessage: { mimetype: 'image/jpeg' } } },
+      })),
+    } as never
+    core.sessions = { socket: vi.fn(() => ({})) } as never
+    const app = Fastify()
+    await registerV1(app, core)
+    const r = await app.inject({ method: 'GET', url: '/v1/sessions/default/chats/a%40s.whatsapp.net/messages/M1/media' })
+    expect(r.statusCode).toBe(200)
+    expect(r.headers['content-type']).toBe('image/jpeg')
+    expect(r.body).toBe('local-bytes')
+    await app.close()
+    rmSync(dir, { recursive: true })
   })
 })
 

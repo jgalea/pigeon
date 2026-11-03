@@ -220,6 +220,7 @@ The `docker-compose.yml` passes each guard variable through from `.env` with the
 | `WA_HOST` | `127.0.0.1` | bind address |
 | `WA_DATA_DIR` | `./data` | SQLite location (sessions + history) |
 | `WA_MEDIA_DIR` | `./media` | downloaded media |
+| `WA_MEDIA_AUTODOWNLOAD` | `on` | save inbound media to `WA_MEDIA_DIR` when the message arrives and serve that copy from the media endpoint; `off` downloads from WhatsApp on each request |
 | `WA_MEDIA_LIFETIME_DAYS` | `180` | media cleanup window |
 | `WA_LOG_LEVEL` | `info` | pino log level |
 | `WA_WEBHOOK_SECRET` | (unset) | if set, sign webhooks with an `x-pigeon-signature` HMAC |
