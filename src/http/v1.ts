@@ -93,6 +93,13 @@ export async function registerV1(app: FastifyInstance, core: Core) {
     })
   })
 
+  app.get('/v1/sessions/:name/chats/:chatId/messages/:msgId', async (req, reply) => {
+    const p = req.params as { name: string; chatId: string; msgId: string }
+    const msg = core.history.get(p.name, normalizeJid(decodeURIComponent(p.chatId)), p.msgId)
+    if (!msg) return reply.code(404).send({ error: 'message not found' })
+    return msg
+  })
+
   // Download (decrypt) inbound media for a stored message. Returns the raw bytes.
   app.get('/v1/sessions/:name/chats/:chatId/messages/:msgId/media', async (req, reply) => {
     const p = req.params as { name: string; chatId: string; msgId: string }
