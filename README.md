@@ -90,6 +90,7 @@ Every route except `/api/health` requires `X-Api-Key: <WA_API_KEY>`. There are t
 | DELETE | `/v1/sessions/:name/scheduled/:id` | cancel; 409 unless still `pending` |
 | GET | `/v1/sessions/:name/chats` | recent chats |
 | GET | `/v1/sessions/:name/chats/:chatId/messages?limit=&includeSystem=` | history; system events (joins, leaves, deletions) have type `system` and a short body, pass `includeSystem=false` to drop them |
+| GET | `/v1/sessions/:name/chats/:chatId/messages/:msgId` | one stored message, 404 if it isn't in history |
 | GET | `/v1/sessions/:name/contacts/check?phone=` | is on WhatsApp |
 | GET | `/v1/sessions/:name/contacts/:chatId/picture` | profile picture url |
 | POST | `/v1/sessions/:name/contacts/:chatId/block` | `{blocked}` |

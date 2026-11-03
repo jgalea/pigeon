@@ -150,3 +150,30 @@ describe('PUT /v1/sessions/:name/webhooks', () => {
     expect(core.webhooks.getUrls('default')).toEqual(['https://203.0.113.10/hook'])
   })
 })
+
+describe('GET /v1/sessions/:name/chats/:chatId/messages/:msgId', () => {
+  const stored = { session: 'default', chatId: '15551234567@s.whatsapp.net', msgId: 'ABC123', fromMe: false, timestamp: 1, type: 'text', body: 'hi' }
+
+  async function appWith(get: ReturnType<typeof vi.fn>) {
+    const core = { ...coreMock(), history: { get } as never }
+    const app = Fastify()
+    await registerV1(app, core)
+    return app
+  }
+
+  it('returns the stored message', async () => {
+    const get = vi.fn(() => stored)
+    const app = await appWith(get)
+    const r = await app.inject({ method: 'GET', url: '/v1/sessions/default/chats/15551234567@s.whatsapp.net/messages/ABC123' })
+    expect(r.statusCode).toBe(200)
+    expect(r.json()).toEqual(stored)
+    expect(get).toHaveBeenCalledWith('default', '15551234567@s.whatsapp.net', 'ABC123')
+  })
+
+  it('answers 404 when the message is not in history', async () => {
+    const app = await appWith(vi.fn(() => undefined))
+    const r = await app.inject({ method: 'GET', url: '/v1/sessions/default/chats/15551234567@s.whatsapp.net/messages/NOPE' })
+    expect(r.statusCode).toBe(404)
+    expect(r.json()).toEqual({ error: 'message not found' })
+  })
+})
