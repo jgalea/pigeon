@@ -333,6 +333,11 @@ export async function registerV1(app: FastifyInstance, core: Core) {
   // Webhook targets are fetched from inside the container, so they need the
   // operator's opt-in and get the same public-address check as media URLs.
   // Clearing the list is always allowed.
+  app.get('/v1/sessions/:name/webhooks', async (req) => {
+    const name = (req.params as { name: string }).name
+    return { urls: core.webhooks.getUrls(name) }
+  })
+
   app.put('/v1/sessions/:name/webhooks', async (req, reply) => {
     const name = (req.params as { name: string }).name
     const urls = (req.body as { urls?: string[] }).urls ?? []

@@ -34,7 +34,7 @@ const webhooks = new WebhookDispatcher(logger, postWebhook, {
   retries: 3,
   baseDelayMs: 500,
   secret: config.webhookSecret,
-})
+}, db, config.allowWebhooks)
 
 sessions.on('event', (e) => {
   webhooks.dispatch(e).catch((err) => logger.warn({ err }, 'webhook dispatch failed'))

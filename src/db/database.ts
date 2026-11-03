@@ -46,6 +46,10 @@ export function openDb(dataDir: string): DB {
       next_retry_at INTEGER,
       created_at INTEGER NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS webhook_urls (
+      session TEXT PRIMARY KEY,
+      urls TEXT NOT NULL
+    );
     CREATE TABLE IF NOT EXISTS scheduled_messages (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       session TEXT NOT NULL,
