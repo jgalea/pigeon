@@ -105,7 +105,8 @@ export async function registerV1(app: FastifyInstance, core: Core) {
       (content.documentMessage ??
         content.imageMessage ??
         content.videoMessage ??
-        content.audioMessage) as { fileName?: string; mimetype?: string } | undefined
+        content.audioMessage ??
+        content.stickerMessage) as { fileName?: string; mimetype?: string } | undefined
     if (!docLike) return reply.code(415).send({ error: 'message has no downloadable media' })
     // Prefer the copy taken when the message arrived. WhatsApp purges media
     // after a few weeks and then answers 410 for a still-valid signed URL, so
@@ -128,7 +129,7 @@ export async function registerV1(app: FastifyInstance, core: Core) {
         reuploadRequest: sock.updateMediaMessage,
       } as NonNullable<Parameters<typeof downloadMediaMessage>[3]>,
     )) as Buffer
-    const filename = docLike.fileName ?? `${p.msgId}.bin`
+    const filename = docLike.fileName ?? `${p.msgId}.${docLike.mimetype === 'image/webp' ? 'webp' : 'bin'}`
     reply.header('Content-Type', docLike.mimetype ?? 'application/octet-stream')
     reply.header('Content-Disposition', `attachment; filename="${filename.replace(/"/g, '')}"`)
     return reply.send(buffer)
