@@ -20,8 +20,9 @@ export class WebhookDispatcher {
       baseDelayMs: 500,
     },
     private db?: DB,
+    loadStored = true,
   ) {
-    if (!db) return
+    if (!db || !loadStored) return
     const rows = db.prepare('SELECT session, urls FROM webhook_urls').all() as { session: string; urls: string }[]
     for (const r of rows) {
       try {

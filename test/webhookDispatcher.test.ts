@@ -69,4 +69,22 @@ describe('WebhookDispatcher', () => {
     expect(third.getUrls('default')).toHaveLength(2)
     db3.close()
   })
+
+  it('does not load stored urls when webhooks are disabled, but still persists a clear', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'pigeon-wh-'))
+    const logger = makeLogger('silent')
+    const db = openDb(dir)
+    new WebhookDispatcher(logger, vi.fn() as never, undefined, db).setUrls('default', ['https://hook.test/a'])
+    db.close()
+
+    const db2 = openDb(dir)
+    const off = new WebhookDispatcher(logger, vi.fn() as never, undefined, db2, false)
+    expect(off.getUrls('default')).toEqual([])
+    off.setUrls('default', [])
+    db2.close()
+
+    const db3 = openDb(dir)
+    expect(new WebhookDispatcher(logger, vi.fn() as never, undefined, db3).getUrls('default')).toEqual([])
+    db3.close()
+  })
 })
