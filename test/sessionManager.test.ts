@@ -144,6 +144,38 @@ describe('SessionManager', () => {
     expect(stored?.mediaPath).toBeUndefined()
   })
 
+  it('adds the normalized chatId to the message event payload', async () => {
+    const { mgr, sock } = newManager()
+    const events: { event: string; payload: Record<string, unknown> }[] = []
+    mgr.on('event', (e) => events.push(e))
+    await mgr.start('default')
+    sock.emit('messages.upsert', {
+      type: 'notify',
+      messages: [
+        {
+          key: {
+            remoteJid: '123456789@lid',
+            remoteJidAlt: '5215512345678@s.whatsapp.net',
+            id: 'MSG001',
+            fromMe: false,
+          },
+          messageTimestamp: 123,
+          message: { conversation: 'hi' },
+        },
+        {
+          key: { remoteJid: 'a@s.whatsapp.net', id: 'MSG002', fromMe: false },
+          messageTimestamp: 124,
+          message: { conversation: 'yo' },
+        },
+      ],
+    })
+    expect(events.map((e) => e.payload.chatId)).toEqual([
+      '5215512345678@s.whatsapp.net',
+      'a@s.whatsapp.net',
+    ])
+    expect((events[0].payload.key as { remoteJid: string }).remoteJid).toBe('123456789@lid')
+  })
+
   it('persists incoming messages to history', async () => {
     const { mgr, sock, hs } = newManager()
     await mgr.start('default')

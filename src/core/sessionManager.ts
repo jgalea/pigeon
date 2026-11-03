@@ -194,7 +194,7 @@ export class SessionManager extends EventEmitter {
         this.history.save(n)
         this.fetchMedia(name, n, msg, sock)
         this.emit('message', n)
-        this.emit('event', { session: name, event: 'message', payload: msg, timestamp: Date.now() })
+        this.emit('event', { session: name, event: 'message', payload: { ...(msg as object), chatId: n.chatId }, timestamp: Date.now() })
       }
     })
 
