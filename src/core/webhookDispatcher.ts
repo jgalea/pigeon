@@ -5,7 +5,7 @@ import { postWebhook, type RequestInitLite } from './safeUrl.js'
 
 // Deliveries go over a pinned connection to a validated public address by
 // default (postWebhook); tests inject a stub.
-type Sender = (url: string, init: RequestInitLite) => Promise<{ ok: boolean }>
+type Sender = (url: string, init: RequestInitLite) => Promise<{ ok: boolean; status?: number }>
 
 export class WebhookDispatcher {
   private urls = new Map<string, string[]>()
@@ -53,6 +53,7 @@ export class WebhookDispatcher {
       try {
         const res = await this.send(url, { method: 'POST', headers, body })
         if (res.ok) return
+        this.logger.warn({ url, attempt, status: res.status }, 'webhook delivery returned non-success status')
       } catch (e) {
         this.logger.warn({ url, attempt, err: (e as Error).message }, 'webhook delivery failed')
       }

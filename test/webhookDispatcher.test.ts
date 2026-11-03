@@ -29,6 +29,33 @@ describe('WebhookDispatcher', () => {
     expect(fetchMock).toHaveBeenCalledTimes(3)
   })
 
+  it('logs the status of a non-success response and keeps retrying', async () => {
+    const warn = vi.fn()
+    const logger = { info() {}, warn, error() {} } as never
+    const send = vi.fn(async () => ({ ok: false, status: 504 }))
+    const d = new WebhookDispatcher(logger, send as never, { retries: 1, baseDelayMs: 1 })
+    await d.dispatch({ session: 'default', event: 'message', payload: {}, timestamp: 1 }, ['https://hook.test/x'])
+    expect(send).toHaveBeenCalledTimes(2)
+    expect(warn).toHaveBeenCalledWith(
+      { url: 'https://hook.test/x', attempt: 0, status: 504 },
+      'webhook delivery returned non-success status',
+    )
+  })
+
+  it('retries after a timed-out attempt and then gives up', async () => {
+    const warn = vi.fn()
+    const error = vi.fn()
+    const logger = { info() {}, warn, error } as never
+    const send = vi.fn(async () => {
+      throw new Error('request timed out after 10000ms')
+    })
+    const d = new WebhookDispatcher(logger, send as never, { retries: 1, baseDelayMs: 1 })
+    await d.dispatch({ session: 'default', event: 'message', payload: {}, timestamp: 1 }, ['https://hook.test/x'])
+    expect(send).toHaveBeenCalledTimes(2)
+    expect(warn).toHaveBeenCalledTimes(2)
+    expect(error).toHaveBeenCalledOnce()
+  })
+
   it('delivers through the public-url check by default, so a private target is never connected to', async () => {
     const warn = vi.fn()
     const logger = { info() {}, warn, error() {} } as never
